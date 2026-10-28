@@ -65,7 +65,7 @@ public class ChanAdapter extends RecyclerView.Adapter<ChanAdapter.VH> {
         }
         resetHandler.removeCallbacks(resetRunnable);
         if (number != -1) {
-            resetHandler.postDelayed(resetRunnable, 400); // 0.4 сек
+            resetHandler.postDelayed(resetRunnable, 400);
         }
     }
 

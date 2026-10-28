@@ -24,7 +24,7 @@ public class SettingsActivity extends AppCompatActivity {
     private CheckBox cbUsilMic, cbUsilDin, cbAgc;
     private LinearLayout layoutServerSettings;
     private Button btnChanList, btnLogs, btnLoadList;
-    private CheckBox cbVerboseLog, cbSoundEnabled, cbAskPassword, cbPttLatch;
+    private CheckBox cbVerboseLog, cbSoundEnabled, cbAskPassword, cbPttLatch, cbShowListNames;
 
     private final ActivityResultLauncher<String[]> openListLauncher =
             registerForActivityResult(new ActivityResultContracts.OpenDocument(), uri -> {
@@ -75,6 +75,7 @@ public class SettingsActivity extends AppCompatActivity {
         cbSoundEnabled = findViewById(R.id.cbSoundEnabled);
         cbAskPassword = findViewById(R.id.cbAskPassword);
         cbPttLatch = findViewById(R.id.cbPttLatch);
+        cbShowListNames = findViewById(R.id.cbShowListNames);
 
         cbUsilMic = findViewById(R.id.cbUsilMic);
         editUsilMic = findViewById(R.id.editUsilMic);
@@ -88,20 +89,28 @@ public class SettingsActivity extends AppCompatActivity {
         editPortPrd.setText(String.valueOf(prefs.getInt("PORT_prd", 16000)));
         editIp.setText(prefs.getString("ip_server", "185.221.154.39"));
 
-        cbUsilMic.setChecked(prefs.getBoolean("onUsilMic", false));
-        editUsilMic.setText(String.valueOf(prefs.getFloat("MicUsildouble", 2.0f)));
+        cbUsilMic.setChecked(prefs.getBoolean("onUsilMic", true));
+        editUsilMic.setText(String.valueOf(prefs.getFloat("MicUsildouble", 5.0f)));
 
-        cbAgc.setChecked(prefs.getBoolean("onAgc", false));
+        cbAgc.setChecked(prefs.getBoolean("onAgc", true));
 
-        cbUsilDin.setChecked(prefs.getBoolean("onUsilDin", false));
-        editUsilDin.setText(String.valueOf(prefs.getFloat("DinUsildouble", 0.4f)));
+        cbUsilDin.setChecked(prefs.getBoolean("onUsilDin", true));
+        editUsilDin.setText(String.valueOf(prefs.getFloat("DinUsildouble", 5.0f)));
 
-        // V9.82: постоянная передача (двойной тап по PTT)
         if (cbPttLatch != null) {
             cbPttLatch.setChecked(prefs.getBoolean("ptt_latch_enabled", true));
             cbPttLatch.setOnCheckedChangeListener((b, checked) -> {
                 prefs.edit().putBoolean("ptt_latch_enabled", checked).apply();
                 AppLog.add("SettingsActivity: ptt_latch_enabled=" + checked);
+            });
+        }
+
+        // V10.0: показывать имена из list.txt (только для CALL)
+        if (cbShowListNames != null) {
+            cbShowListNames.setChecked(prefs.getBoolean("show_list_names", false));
+            cbShowListNames.setOnCheckedChangeListener((b, checked) -> {
+                prefs.edit().putBoolean("show_list_names", checked).apply();
+                AppLog.add("SettingsActivity: show_list_names=" + checked);
             });
         }
 
@@ -123,7 +132,7 @@ public class SettingsActivity extends AppCompatActivity {
         }
 
         if (cbSoundEnabled != null) {
-            cbSoundEnabled.setChecked(prefs.getBoolean("sound_enabled", true));
+            cbSoundEnabled.setChecked(prefs.getBoolean("sound_enabled", false));
             cbSoundEnabled.setOnCheckedChangeListener((b, checked) -> {
                 prefs.edit().putBoolean("sound_enabled", checked).apply();
                 AppLog.add("SettingsActivity: sound_enabled=" + checked);
@@ -209,7 +218,8 @@ public class SettingsActivity extends AppCompatActivity {
                 + ", mic=" + cbUsilMic.isChecked() + "/" + editUsilMic.getText()
                 + ", agc=" + cbAgc.isChecked()
                 + ", din=" + cbUsilDin.isChecked() + "/" + editUsilDin.getText()
-                + ", ptt_latch=" + (cbPttLatch != null ? cbPttLatch.isChecked() : "n/a"));
+                + ", ptt_latch=" + (cbPttLatch != null ? cbPttLatch.isChecked() : "n/a")
+                + ", show_list=" + (cbShowListNames != null ? cbShowListNames.isChecked() : "n/a"));
 
         if (PmrService.pmrSocket != null) {
             PmrService.pmrSocket.recreateSocket(this);

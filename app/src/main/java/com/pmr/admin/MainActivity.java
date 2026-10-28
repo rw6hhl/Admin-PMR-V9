@@ -34,10 +34,9 @@ import androidx.core.content.ContextCompat;
 public class MainActivity extends AppCompatActivity {
     private static final int REQ_MIC = 101;
     private static final int PTT_LATCH_BLINK_PERIOD_MS = 500;
-    // V9.83: длительность, меньше которой нажатие считается «тапом», а не «удержанием»
     private static final int PTT_TAP_MAX_MS = 300;
-    // V9.83: пауза ожидания второго тапа для распознавания двойного
     private static final int PTT_DOUBLE_TAP_TIMEOUT_MS = 300;
+    private static final String ADMIN_PASSWORD = "r0st0v";
 
     private SharedPreferences prefs;
     private TextView tvChannel, tvIndex, tvSpeakingId, tvVersion, tvActiveUsers;
@@ -51,13 +50,15 @@ public class MainActivity extends AppCompatActivity {
 
     private GestureDetector gestureDetector;
 
-    // V9.83: постоянная передача (PTT latch) — своя логика тапов без GestureDetector
     private boolean pttLatchEnabled = true;
     private boolean pttLatched = false;
     private long pttDownTime = 0L;
-    private boolean pttHoldActive = false;      // сейчас идёт удержание (PMR_START отправлен)
-    private boolean pttTapPending = false;      // одиночный тап ожидает подтверждения
+    private boolean pttHoldActive = false;
+    private boolean pttTapPending = false;
     private boolean blinkState = false;
+
+    private int lastUserCount = -1;
+    private boolean showListNames = false;
 
     private final Handler speakingHandler = new Handler(Looper.getMainLooper());
     private final Runnable resetSpeakingId = () -> {
@@ -78,7 +79,6 @@ public class MainActivity extends AppCompatActivity {
     };
 
     private final Handler tapHandler = new Handler(Looper.getMainLooper());
-    // V9.83: срабатывает, если за PTT_DOUBLE_TAP_TIMEOUT_MS не пришёл второй тап
     private final Runnable singleTapRunnable = () -> {
         if (!pttTapPending) return;
         pttTapPending = false;
@@ -86,7 +86,6 @@ public class MainActivity extends AppCompatActivity {
         if (pttLatched) {
             stopPttLatch();
         }
-        // если не latch — одиночный тап ничего не делает (по решению пользователя)
     };
 
     private BroadcastReceiver voiceReceiver = new BroadcastReceiver() {
@@ -95,6 +94,19 @@ public class MainActivity extends AppCompatActivity {
             int clientNumber = intent.getIntExtra("clientId", -1);
             AppLog.add("MainActivity: BroadcastReceiver получил PMR_VOICE_RECEIVED, number=" + clientNumber);
             if (clientNumber != -1) {
+                if (!showListNames) {
+                    // V10.0: показываем только количество в канале (из cmd=110)
+                    String text = lastUserCount >= 0 ? String.valueOf(lastUserCount) : "";
+                    AppLog.add("MainActivity: show_list_names=false → CALL показывает количество: " + text);
+                    tvSpeakingId.setText(text);
+                    tvSpeakingId.setTextColor(Color.RED);
+                    tvSpeakingId.setTypeface(null, Typeface.BOLD);
+                    imgGreen.setVisibility(View.VISIBLE);
+                    speakingHandler.removeCallbacks(resetSpeakingId);
+                    speakingHandler.postDelayed(resetSpeakingId, 400);
+                    return;
+                }
+
                 int id;
                 if (currentChannel == 4) {
                     id = PmrSocket.Priznak_pmr;
@@ -113,7 +125,8 @@ public class MainActivity extends AppCompatActivity {
                 }
                 String name = NameBook.getName(MainActivity.this, id);
                 String text = String.format("%d %s", id, name);
-                AppLog.add("MainActivity: вывод в CALL — number=" + clientNumber + ", id=" + id + ", text=" + text);
+                AppLog.add("MainActivity: show_list_names=true → CALL: number=" + clientNumber
+                        + ", id=" + id + ", text=" + text);
 
                 tvSpeakingId.setText(text);
                 tvSpeakingId.setTextColor(Color.RED);
@@ -132,6 +145,7 @@ public class MainActivity extends AppCompatActivity {
         public void onReceive(Context context, Intent intent) {
             int count = intent.getIntExtra("count", -1);
             if (count != -1) {
+                lastUserCount = count;
                 updateActiveUsers(count);
             }
         }
@@ -155,9 +169,9 @@ public class MainActivity extends AppCompatActivity {
         }
 
         String savedVersion = prefs.getString("app_version", "0");
-        if (!savedVersion.equals("9.83")) {
+        if (!savedVersion.equals("10.0")) {
             prefs.edit()
-                .putString("app_version", "9.83")
+                .putString("app_version", "10.0")
                 .putString("MyMailIndex", "51953")
                 .putString("Priznak_pmr", "26000")
                 .putInt("PORT_prm", 5253)
@@ -167,11 +181,19 @@ public class MainActivity extends AppCompatActivity {
                 .putBoolean("simplex", true)
                 .putBoolean("is_admin_mode", false)
                 .putBoolean("ptt_latch_enabled", true)
+                .putBoolean("sound_enabled", false)
+                .putFloat("MicUsildouble", 5.0f)
+                .putBoolean("onUsilMic", true)
+                .putFloat("DinUsildouble", 5.0f)
+                .putBoolean("onUsilDin", true)
+                .putBoolean("onAgc", true)
+                .putBoolean("show_list_names", false)
                 .apply();
-            AppLog.add("MainActivity: Настройки сброшены (V9.83): Priznak=26000, Mail=51953, Ch=4, PORT_prm=5253, PORT_prd=16000, ptt_latch_enabled=true");
+            AppLog.add("MainActivity: Настройки сброшены (V10.0): ptt_latch=true, sound=false, mic=5.0/on, din=5.0/on, agc=true, show_list_names=false");
         }
 
         pttLatchEnabled = prefs.getBoolean("ptt_latch_enabled", true);
+        showListNames = prefs.getBoolean("show_list_names", false);
 
         requestMicPermission();
 
@@ -192,7 +214,7 @@ public class MainActivity extends AppCompatActivity {
         updateUI();
         updatePowerButton();
 
-        AppLog.add("MainActivity: onCreate — сервис НЕ стартует автоматически (V9.83)");
+        AppLog.add("MainActivity: onCreate — сервис НЕ стартует автоматически (V10.0)");
     }
 
     private void beep() {
@@ -259,10 +281,15 @@ public class MainActivity extends AppCompatActivity {
             public boolean onDoubleTap(@NonNull MotionEvent e) {
                 beep();
                 AppLog.add("MainActivity: ДВОЙНОЕ нажатие скрытой кнопки (GestureDetector)");
-                if (prefs.getBoolean("ask_password", true)) {
-                    showPasswordDialog();
-                } else {
+                if (isAdminMode) {
+                    AppLog.add("MainActivity: выход из админки без пароля");
                     toggleAdminMode();
+                } else {
+                    if (prefs.getBoolean("ask_password", true)) {
+                        showPasswordDialog();
+                    } else {
+                        toggleAdminMode();
+                    }
                 }
                 return true;
             }
@@ -358,7 +385,6 @@ public class MainActivity extends AppCompatActivity {
         btnSave4.setOnLongClickListener(v -> { beep(); savePreset(4); return true; });
         btnSave5.setOnLongClickListener(v -> { beep(); savePreset(5); return true; });
 
-        // V9.83: PTT — своя логика тапов без GestureDetector
         btnPTT.setOnTouchListener((v, event) -> {
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
@@ -372,7 +398,6 @@ public class MainActivity extends AppCompatActivity {
                     if (!pttHoldActive && !pttLatched) {
                         long dt = System.currentTimeMillis() - pttDownTime;
                         if (dt >= PTT_TAP_MAX_MS) {
-                            // Переросло в удержание — отправляем START, гасим ожидание тапа
                             cancelTapWaiting();
                             pttHoldActive = true;
                             beep();
@@ -394,7 +419,6 @@ public class MainActivity extends AppCompatActivity {
                             + ", cancel=" + isCancel);
 
                     if (pttHoldActive) {
-                        // Обычное удержание завершено
                         pttHoldActive = false;
                         imgRed.setVisibility(View.INVISIBLE);
                         sendBroadcast(new Intent("PMR_STOP_RECORDING"));
@@ -403,12 +427,10 @@ public class MainActivity extends AppCompatActivity {
                     }
 
                     if (isCancel) {
-                        // Отмена — ничего не считаем тапом
                         return true;
                     }
 
                     if (duration >= PTT_TAP_MAX_MS) {
-                        // Долгий тап: hold-to-talk без MOVE-события
                         if (!pttLatched) {
                             beep();
                             imgRed.setVisibility(View.VISIBLE);
@@ -420,9 +442,7 @@ public class MainActivity extends AppCompatActivity {
                         return true;
                     }
 
-                    // Короткий тап (< PTT_TAP_MAX_MS)
                     if (pttTapPending) {
-                        // Второй тап — двойной
                         cancelTapWaiting();
                         AppLog.add("MainActivity: PTT double tap распознан");
                         if (!pttLatchEnabled) {
@@ -435,7 +455,6 @@ public class MainActivity extends AppCompatActivity {
                             }
                         }
                     } else {
-                        // Первый тап — ждём второй
                         pttTapPending = true;
                         tapHandler.postDelayed(singleTapRunnable, PTT_DOUBLE_TAP_TIMEOUT_MS);
                         AppLog.add("MainActivity: PTT tap #1 — ожидание второго тапа " + PTT_DOUBLE_TAP_TIMEOUT_MS + " мс");
@@ -446,13 +465,11 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    // V9.83: отмена ожидания одиночного тапа (когда распознан двойной или началось удержание)
     private void cancelTapWaiting() {
         pttTapPending = false;
         tapHandler.removeCallbacks(singleTapRunnable);
     }
 
-    // V9.83: включить постоянную передачу
     private void startPttLatch() {
         if (pttLatched) return;
         pttLatched = true;
@@ -464,7 +481,6 @@ public class MainActivity extends AppCompatActivity {
         Toast.makeText(this, "Постоянная передача ВКЛ", Toast.LENGTH_SHORT).show();
     }
 
-    // V9.83: выключить постоянную передачу
     private void stopPttLatch() {
         if (!pttLatched) return;
         pttLatched = false;
@@ -477,7 +493,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void showPasswordDialog() {
         EditText input = new EditText(this);
-        input.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         input.setHint("Пароль");
 
         new AlertDialog.Builder(this)
@@ -486,7 +502,7 @@ public class MainActivity extends AppCompatActivity {
                 .setView(input)
                 .setPositiveButton("Войти", (dialog, which) -> {
                     String pass = input.getText().toString();
-                    if ("1234".equals(pass)) {
+                    if (ADMIN_PASSWORD.equals(pass)) {
                         AppLog.add("MainActivity: пароль верный");
                         toggleAdminMode();
                     } else {
@@ -517,13 +533,12 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * V10.0: показываем количество пользователей на ВСЕХ каналах, включая 4 и 5.
+     */
     private void updateActiveUsers(int count) {
         if (tvActiveUsers == null) return;
-        if (currentChannel != 4 && currentChannel != 5) {
-            tvActiveUsers.setText(String.valueOf(count));
-        } else {
-            tvActiveUsers.setText("");
-        }
+        tvActiveUsers.setText(String.valueOf(count));
     }
 
     private void savePreset(int presetNum) {
@@ -605,22 +620,20 @@ public class MainActivity extends AppCompatActivity {
             tvChannel.setTextColor(getResources().getColor(android.R.color.black));
             btnCallOrList.setText("CALL");
         }
-
-        if (tvActiveUsers != null && (currentChannel == 4 || currentChannel == 5)) {
-            tvActiveUsers.setText("");
-        }
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        soundEnabled = prefs.getBoolean("sound_enabled", true);
+        soundEnabled = prefs.getBoolean("sound_enabled", false);
         isAdminMode = prefs.getBoolean("is_admin_mode", false);
         currentChannel = prefs.getInt("current_channel", 4);
         pttLatchEnabled = prefs.getBoolean("ptt_latch_enabled", true);
+        showListNames = prefs.getBoolean("show_list_names", false);
         AppLog.add("MainActivity: onResume, isAdminMode=" + isAdminMode
                 + ", currentChannel=" + currentChannel
-                + ", ptt_latch_enabled=" + pttLatchEnabled);
+                + ", ptt_latch_enabled=" + pttLatchEnabled
+                + ", show_list_names=" + showListNames);
         updateUI();
         updatePowerButton();
         registerReceiver(voiceReceiver, new IntentFilter("PMR_VOICE_RECEIVED"));

@@ -8,17 +8,23 @@ import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class PmrSocket {
     private static final String TAG = "PmrSocket";
     private static final int ADMIN_OBSERVER_ID = 11777;
+    private static final int ADMIN_INFO_PERIOD_MS = 10000;
+    private static final String ADMIN_NAME = "Admin lin";
+
     private DatagramSocket socket;
     private InetAddress serverAddr;
     private boolean isRunning = false;
     private Thread receiveThread;
     private Thread pingThread;
+    private Thread adminInfoThread;
     private AudioEngine audioEngine;
     private Context appContext;
 
@@ -40,12 +46,16 @@ public class PmrSocket {
 
     public static class ChanEntry {
         public int number;
+        public int cod;
         public int id;
+        public int port;
         public String ip;
         public boolean ban;
-        public ChanEntry(int number, int id, String ip, boolean ban) {
+        public ChanEntry(int number, int cod, int id, int port, String ip, boolean ban) {
             this.number = number;
+            this.cod = cod;
             this.id = id;
+            this.port = port;
             this.ip = ip;
             this.ban = ban;
         }
@@ -171,6 +181,7 @@ public class PmrSocket {
         }, "PMR-ReceiveThread");
         receiveThread.start();
         startPingThread();
+        startAdminInfoThread();
     }
 
     public int getClientNumber() {
@@ -205,6 +216,7 @@ public class PmrSocket {
         receiveThread.start();
 
         startPingThread();
+        startAdminInfoThread();
     }
 
     private void startPingThread() {
@@ -231,6 +243,57 @@ public class PmrSocket {
             }
         }, "PMR-PingThread");
         pingThread.start();
+    }
+
+    /**
+     * V10.0: раз в 10 секунд, только в режиме Админа.
+     * cmd=77 — признак (4 байта).
+     * cmd=88 — имя (2 байта ID + "Admin lin" + \0).
+     */
+    private void startAdminInfoThread() {
+        adminInfoThread = new Thread(() -> {
+            // Небольшая задержка, чтобы не дублировать с первым ping в момент старта
+            try { Thread.sleep(1000); } catch (Exception ignored) {}
+            while (isRunning) {
+                try {
+                    boolean isAdmin = prefs.getBoolean("is_admin_mode", false);
+                    if (isAdmin) {
+                        // cmd=77 — признак
+                        byte[] priznak = new byte[4];
+                        priznak[0] = 77;
+                        priznak[1] = 0;
+                        priznak[2] = (byte) (Priznak_pmr & 0xFF);
+                        priznak[3] = (byte) ((Priznak_pmr >> 8) & 0xFF);
+                        socket.send(new DatagramPacket(priznak, 4, serverAddr, portPrd + kanalPrd));
+                        AppLog.addVerbose("PmrSocket: → cmd=77 (признак) ID=" + Priznak_pmr
+                                + ", порт=" + (portPrd + kanalPrd));
+
+                        // cmd=88 — имя
+                        byte[] nameBytes = ADMIN_NAME.getBytes(StandardCharsets.UTF_8);
+                        int payloadLen = 4 + 2 + nameBytes.length + 1;
+                        byte[] namePacket = new byte[payloadLen];
+                        namePacket[0] = 88;
+                        namePacket[1] = 0;
+                        namePacket[2] = (byte) (Priznak_pmr & 0xFF);
+                        namePacket[3] = (byte) ((Priznak_pmr >> 8) & 0xFF);
+                        namePacket[4] = (byte) (Priznak_pmr & 0xFF);
+                        namePacket[5] = (byte) ((Priznak_pmr >> 8) & 0xFF);
+                        System.arraycopy(nameBytes, 0, namePacket, 6, nameBytes.length);
+                        namePacket[payloadLen - 1] = 0;
+                        socket.send(new DatagramPacket(namePacket, payloadLen, serverAddr, portPrd + kanalPrd));
+                        AppLog.addVerbose("PmrSocket: → cmd=88 (имя=\"" + ADMIN_NAME + "\") ID=" + Priznak_pmr
+                                + ", порт=" + (portPrd + kanalPrd) + ", len=" + payloadLen);
+                    } else {
+                        AppLog.addVerbose("PmrSocket: admin info — is_admin_mode=false, пропуск cmd=77/88");
+                    }
+                    Thread.sleep(ADMIN_INFO_PERIOD_MS);
+                } catch (Exception e) {
+                    Log.e(TAG, "AdminInfo error: " + e.getMessage());
+                    try { Thread.sleep(ADMIN_INFO_PERIOD_MS); } catch (Exception ignored) {}
+                }
+            }
+        }, "PMR-AdminInfoThread");
+        adminInfoThread.start();
     }
 
     private void parsePacket(byte[] data) {
@@ -279,6 +342,53 @@ public class PmrSocket {
             }
         } else if (command == 234) {
             parseChanList(data);
+        } else if (command == 88) {
+            parseAdminName(data);
+        }
+    }
+
+    /**
+     * V10.0: приём имени от другого админа (cmd=88). Только в режиме Админа.
+     * Формат payload: [id_lo, id_hi, name_bytes..., \0]
+     */
+    private void parseAdminName(byte[] data) {
+        if (data.length < 7) return;
+        if (appContext == null) return;
+        if (!prefs.getBoolean("is_admin_mode", false)) {
+            AppLog.addVerbose("PmrSocket: cmd=88 получен, но is_admin_mode=false — игнор");
+            return;
+        }
+        int idLo = data[4] & 0xFF;
+        int idHi = data[5] & 0xFF;
+        int peerId = idLo | (idHi << 8);
+        if (peerId == Priznak_pmr) {
+            AppLog.addVerbose("PmrSocket: cmd=88 — свой ID, игнор");
+            return;
+        }
+        int end = 6;
+        while (end < data.length && data[end] != 0) end++;
+        if (end <= 6) {
+            AppLog.add("PmrSocket: cmd=88 — пустое имя для ID=" + peerId + ", игнор");
+            return;
+        }
+        String peerName = new String(data, 6, end - 6, StandardCharsets.UTF_8).trim();
+        if (peerName.isEmpty()) return;
+
+        Map<Integer, String> map = NameBook.load(appContext);
+        String existing = map.get(peerId);
+        if (existing == null) {
+            map.put(peerId, peerName);
+            NameBook.save(appContext, map);
+            AppLog.add("PmrSocket: cmd=88 — добавлено имя ID=" + peerId + " → \"" + peerName + "\"");
+            requestChanList();
+        } else if (!existing.equals(peerName)) {
+            map.put(peerId, peerName);
+            NameBook.save(appContext, map);
+            AppLog.add("PmrSocket: cmd=88 — обновлено имя ID=" + peerId
+                    + " (было \"" + existing + "\" → стало \"" + peerName + "\")");
+            requestChanList();
+        } else {
+            AppLog.addVerbose("PmrSocket: cmd=88 — имя ID=" + peerId + " без изменений");
         }
     }
 
@@ -292,8 +402,9 @@ public class PmrSocket {
             int offset = 4 + (i * 13);
             if (offset + 12 >= data.length) break;
             int numberRaw = (data[offset + 0] & 0xFF) | ((data[offset + 1] & 0xFF) << 8);
-            int number = numberRaw;
+            int cod = (data[offset + 2] & 0xFF) | ((data[offset + 3] & 0xFF) << 8);
             int id = (data[offset + 4] & 0xFF) | ((data[offset + 5] & 0xFF) << 8);
+            int port = (data[offset + 6] & 0xFF) | ((data[offset + 7] & 0xFF) << 8);
             int ip0 = data[offset + 8] & 0xFF;
             int ip1 = data[offset + 9] & 0xFF;
             int ip2 = data[offset + 10] & 0xFF;
@@ -301,10 +412,10 @@ public class PmrSocket {
             String ip = ip0 + "." + ip1 + "." + ip2 + "." + ip3;
             boolean ban = (data[offset + 12] & 0xFF) != 0;
 
-            entries.add(new ChanEntry(number, id, ip, ban));
-            AppLog.add("PmrSocket:   запись #" + i + " — numberRaw=" + numberRaw + ", number=" + number
+            entries.add(new ChanEntry(numberRaw, cod, id, port, ip, ban));
+            AppLog.add("PmrSocket:   запись #" + i + " — number=" + numberRaw + ", cod=" + cod
                     + ", id=" + id + (id == ADMIN_OBSERVER_ID ? " (админ/наблюдатель)" : "")
-                    + ", ip=" + ip + ", ban=" + ban);
+                    + ", port=" + port + ", ip=" + ip + ", ban=" + ban);
         }
 
         lastChanList = entries;
@@ -332,9 +443,7 @@ public class PmrSocket {
     }
 
     /**
-     * V9.81: cmd=234 запрашивается ТОЛЬКО на канале 5 (это единственный канал со списком).
-     * На канале 4 (эхо-репитер) и на каналах 0-3, 6-8 список не запрашивается.
-     * Порт 16013 и kanal=13 — по факту теста PowerShell (сервер отвечает только на 16013).
+     * V9.81: cmd=234 запрашивается ТОЛЬКО на канале 5.
      */
     public void requestChanList() {
         if (socket == null || socket.isClosed()) {
@@ -368,7 +477,7 @@ public class PmrSocket {
             AppLog.add("PmrSocket: sendCall — репитерный канал (0), вызов не отправляется");
             return;
         }
-        
+
         new Thread(() -> {
             try {
                 byte[] callPacket = new byte[24];
@@ -376,10 +485,10 @@ public class PmrSocket {
                 callPacket[1] = 0;
                 callPacket[2] = (byte) (Priznak_pmr & 0xFF);
                 callPacket[3] = (byte) ((Priznak_pmr >> 8) & 0xFF);
-                
+
                 byte[] bellBytes = "BELL".getBytes();
                 System.arraycopy(bellBytes, 0, callPacket, 4, bellBytes.length);
-                
+
                 int callPort = portPrd + kanalPrd;
                 socket.send(new DatagramPacket(callPacket, 24, serverAddr, callPort));
                 AppLog.add("PmrSocket: → cmd=20 (CALL) отправлен, порт=" + callPort + ", kanal=" + kanalPrd);
@@ -391,8 +500,6 @@ public class PmrSocket {
 
     /**
      * V9.81: cmd=222 (БАН/РАЗБАН) — только на канале 5.
-     * Канал 4 (эхо) и остальные каналы бан не отправляют.
-     * Порт 16013, kanal=13.
      */
     public void sendBan(final int targetNumber, final int targetId) {
         if (socket == null || socket.isClosed()) {
@@ -403,7 +510,7 @@ public class PmrSocket {
             AppLog.add("PmrSocket: sendBan — канал не 5, пропуск (cmd=222 только для канала 5)");
             return;
         }
-        
+
         new Thread(() -> {
             if (targetId == Priznak_pmr) {
                 AppLog.add("PmrSocket: БАН запрещён — попытка забанить самого себя (ID=" + targetId + ")");
@@ -416,17 +523,17 @@ public class PmrSocket {
             int rawNumber = targetNumber;
             ban[2] = (byte) (rawNumber & 0xFF);
             ban[3] = (byte) ((rawNumber >> 8) & 0xFF);
-            
+
             try {
                 int banPort = portPrd + 13;
                 socket.send(new DatagramPacket(ban, 4, serverAddr, banPort));
                 AppLog.add("PmrSocket: → cmd=222 (БАН/РАЗБАН) number=" + targetNumber
                         + ", id=" + targetId + ", kanal=13, порт=" + banPort + " (канал 5)");
-                
+
                 requestChanList();
                 Thread.sleep(300);
                 requestChanList();
-                
+
             } catch (Exception e) {
                 AppLog.add("PmrSocket: ОШИБКА cmd=222 — " + e.getMessage());
             }
