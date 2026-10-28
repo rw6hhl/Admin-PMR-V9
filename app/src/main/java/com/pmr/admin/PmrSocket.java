@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -78,13 +79,23 @@ public class PmrSocket {
         loadSettings();
         try {
             this.serverAddr = InetAddress.getByName("185.221.154.39");
-            this.socket = new DatagramSocket(portPrm);
+            this.socket = createSocket(portPrm);
             this.socket.setSoTimeout(1000);
             AppLog.add("PmrSocket: Сокет открыт, порт=" + portPrm + ", IP=" + serverAddr.getHostAddress());
         } catch (Exception e) {
             Log.e(TAG, "Error init socket: " + e.getMessage());
             AppLog.add("PmrSocket: ОШИБКА сокета — " + e.getMessage());
         }
+    }
+
+    /**
+     * V10.2: создание сокета с setReuseAddress(true), чтобы избежать EADDRINUSE.
+     */
+    private DatagramSocket createSocket(int port) throws Exception {
+        DatagramSocket s = new DatagramSocket(null);
+        s.setReuseAddress(true);
+        s.bind(new InetSocketAddress(port));
+        return s;
     }
 
     public void setVoiceListener(OnVoiceListener listener) {
@@ -104,12 +115,12 @@ public class PmrSocket {
 
     private void loadSettings() {
         try {
-            myMailIndex = Integer.parseInt(prefs.getString("MyMailIndex", "51953"));
+            myMailIndex = Integer.parseInt(prefs.getString("MyMailIndex", "111111"));
         } catch (Exception ignored) {}
         try {
-            Priznak_pmr = Integer.parseInt(prefs.getString("Priznak_pmr", "26000"));
+            Priznak_pmr = Integer.parseInt(prefs.getString("Priznak_pmr", "22222"));
         } catch (Exception ignored) {}
-        portPrm = prefs.getInt("PORT_prm", 5253);
+        portPrm = prefs.getInt("PORT_prm", 5353);
         portPrd = prefs.getInt("PORT_prd", 16000);
 
         kanalSecret = (myMailIndex & 0xFFFFFFF0) >> 4;
@@ -126,13 +137,13 @@ public class PmrSocket {
     public void reloadFromPrefs(Context context) {
         SharedPreferences sp = context.getSharedPreferences("pmr_prefs", Context.MODE_PRIVATE);
         try {
-            myMailIndex = Integer.parseInt(sp.getString("MyMailIndex", "51953"));
+            myMailIndex = Integer.parseInt(sp.getString("MyMailIndex", "111111"));
         } catch (Exception ignored) {}
         try {
-            Priznak_pmr = Integer.parseInt(sp.getString("Priznak_pmr", "26000"));
+            Priznak_pmr = Integer.parseInt(sp.getString("Priznak_pmr", "22222"));
         } catch (Exception ignored) {}
         portPrd = sp.getInt("PORT_prd", 16000);
-        portPrm = sp.getInt("PORT_prm", 5253);
+        portPrm = sp.getInt("PORT_prm", 5353);
         try {
             String ip = sp.getString("ip_server", "185.221.154.39");
             serverAddr = InetAddress.getByName(ip);
@@ -149,16 +160,22 @@ public class PmrSocket {
     public void recreateSocket(Context context) {
         AppLog.add("PmrSocket: recreateSocket — старт");
         isRunning = false;
+        // V10.3: прерываем adminInfoThread, чтобы не накапливались дубли cmd=77/88
+        if (adminInfoThread != null) {
+            try { adminInfoThread.interrupt(); } catch (Exception ignored) {}
+            try { adminInfoThread.join(500); } catch (Exception ignored) {}
+            adminInfoThread = null;
+        }
         try {
             if (socket != null && !socket.isClosed()) socket.close();
         } catch (Exception ignored) {}
         if (receiveThread != null) {
             try { receiveThread.join(500); } catch (Exception ignored) {}
         }
-        try { Thread.sleep(100); } catch (Exception ignored) {}
+        try { Thread.sleep(300); } catch (Exception ignored) {}
         reloadFromPrefs(context);
         try {
-            this.socket = new DatagramSocket(portPrm);
+            this.socket = createSocket(portPrm);
             this.socket.setSoTimeout(1000);
             AppLog.add("PmrSocket: Сокет пересоздан, порт=" + portPrm + ", kanal=" + kanalPrd);
         } catch (Exception e) {
@@ -249,26 +266,32 @@ public class PmrSocket {
      * V10.0: раз в 10 секунд, только в режиме Админа.
      * cmd=77 — признак (4 байта).
      * cmd=88 — имя (2 байта ID + "Admin lin" + \0).
+     * V10.3: один поток (interrupt предыдущего в recreateSocket/stop).
+     * Логирование принудительное (без verbose).
      */
     private void startAdminInfoThread() {
+        // V10.3: страховка — если старый поток ещё жив, прерываем его
+        if (adminInfoThread != null) {
+            try { adminInfoThread.interrupt(); } catch (Exception ignored) {}
+            adminInfoThread = null;
+        }
         adminInfoThread = new Thread(() -> {
-            // Небольшая задержка, чтобы не дублировать с первым ping в момент старта
-            try { Thread.sleep(1000); } catch (Exception ignored) {}
-            while (isRunning) {
+            try { Thread.sleep(1000); } catch (InterruptedException ie) { return; } catch (Exception ignored) {}
+            while (isRunning && !Thread.currentThread().isInterrupted()) {
                 try {
                     boolean isAdmin = prefs.getBoolean("is_admin_mode", false);
                     if (isAdmin) {
-                        // cmd=77 — признак
+                        int port = portPrd + kanalPrd;
+
                         byte[] priznak = new byte[4];
                         priznak[0] = 77;
                         priznak[1] = 0;
                         priznak[2] = (byte) (Priznak_pmr & 0xFF);
                         priznak[3] = (byte) ((Priznak_pmr >> 8) & 0xFF);
-                        socket.send(new DatagramPacket(priznak, 4, serverAddr, portPrd + kanalPrd));
-                        AppLog.addVerbose("PmrSocket: → cmd=77 (признак) ID=" + Priznak_pmr
-                                + ", порт=" + (portPrd + kanalPrd));
+                        socket.send(new DatagramPacket(priznak, 4, serverAddr, port));
+                        AppLog.add("PmrSocket: → cmd=77 (признак) ID=" + Priznak_pmr
+                                + ", порт=" + port + ", kanal=" + kanalPrd);
 
-                        // cmd=88 — имя
                         byte[] nameBytes = ADMIN_NAME.getBytes(StandardCharsets.UTF_8);
                         int payloadLen = 4 + 2 + nameBytes.length + 1;
                         byte[] namePacket = new byte[payloadLen];
@@ -280,18 +303,22 @@ public class PmrSocket {
                         namePacket[5] = (byte) ((Priznak_pmr >> 8) & 0xFF);
                         System.arraycopy(nameBytes, 0, namePacket, 6, nameBytes.length);
                         namePacket[payloadLen - 1] = 0;
-                        socket.send(new DatagramPacket(namePacket, payloadLen, serverAddr, portPrd + kanalPrd));
-                        AppLog.addVerbose("PmrSocket: → cmd=88 (имя=\"" + ADMIN_NAME + "\") ID=" + Priznak_pmr
-                                + ", порт=" + (portPrd + kanalPrd) + ", len=" + payloadLen);
+                        socket.send(new DatagramPacket(namePacket, payloadLen, serverAddr, port));
+                        AppLog.add("PmrSocket: → cmd=88 (имя=\"" + ADMIN_NAME + "\") ID=" + Priznak_pmr
+                                + ", порт=" + port + ", kanal=" + kanalPrd + ", len=" + payloadLen);
                     } else {
                         AppLog.addVerbose("PmrSocket: admin info — is_admin_mode=false, пропуск cmd=77/88");
                     }
                     Thread.sleep(ADMIN_INFO_PERIOD_MS);
+                } catch (InterruptedException ie) {
+                    AppLog.add("PmrSocket: adminInfoThread прерван");
+                    return;
                 } catch (Exception e) {
                     Log.e(TAG, "AdminInfo error: " + e.getMessage());
-                    try { Thread.sleep(ADMIN_INFO_PERIOD_MS); } catch (Exception ignored) {}
+                    try { Thread.sleep(ADMIN_INFO_PERIOD_MS); } catch (InterruptedException ie) { return; } catch (Exception ignored) {}
                 }
             }
+            AppLog.add("PmrSocket: adminInfoThread завершён (isRunning=" + isRunning + ")");
         }, "PMR-AdminInfoThread");
         adminInfoThread.start();
     }
@@ -349,7 +376,6 @@ public class PmrSocket {
 
     /**
      * V10.0: приём имени от другого админа (cmd=88). Только в режиме Админа.
-     * Формат payload: [id_lo, id_hi, name_bytes..., \0]
      */
     private void parseAdminName(byte[] data) {
         if (data.length < 7) return;
@@ -547,6 +573,11 @@ public class PmrSocket {
 
     public void stop() {
         isRunning = false;
+        // V10.3: прерываем adminInfoThread, чтобы не оставался висеть
+        if (adminInfoThread != null) {
+            try { adminInfoThread.interrupt(); } catch (Exception ignored) {}
+            adminInfoThread = null;
+        }
         if (socket != null && !socket.isClosed()) socket.close();
         AppLog.add("PmrSocket: stop() — сокет закрыт");
     }
