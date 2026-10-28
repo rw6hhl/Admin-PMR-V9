@@ -83,9 +83,9 @@ public class SettingsActivity extends AppCompatActivity {
         cbUsilDin = findViewById(R.id.cbUsilDin);
         editUsilDin = findViewById(R.id.editUsilDin);
 
-        editMailIndex.setText(prefs.getString("MyMailIndex", "51953"));
-        editPriznak.setText(prefs.getString("Priznak_pmr", "26000"));
-        editPortPrm.setText(String.valueOf(prefs.getInt("PORT_prm", 5253)));
+        editMailIndex.setText(prefs.getString("MyMailIndex", "111111"));
+        editPriznak.setText(prefs.getString("Priznak_pmr", "22222"));
+        editPortPrm.setText(String.valueOf(prefs.getInt("PORT_prm", 5353)));
         editPortPrd.setText(String.valueOf(prefs.getInt("PORT_prd", 16000)));
         editIp.setText(prefs.getString("ip_server", "185.221.154.39"));
 
@@ -105,7 +105,6 @@ public class SettingsActivity extends AppCompatActivity {
             });
         }
 
-        // V10.0: показывать имена из list.txt (только для CALL)
         if (cbShowListNames != null) {
             cbShowListNames.setChecked(prefs.getBoolean("show_list_names", false));
             cbShowListNames.setOnCheckedChangeListener((b, checked) -> {
@@ -139,15 +138,18 @@ public class SettingsActivity extends AppCompatActivity {
             });
         }
 
+        // V10.1: видимость cbAskPassword — только в админке
         boolean isAdmin = prefs.getBoolean("is_admin_mode", false);
         if (isAdmin) {
             btnChanList.setVisibility(View.VISIBLE);
             btnLogs.setVisibility(View.VISIBLE);
             cbVerboseLog.setVisibility(View.VISIBLE);
+            if (cbAskPassword != null) cbAskPassword.setVisibility(View.VISIBLE);
         } else {
             btnChanList.setVisibility(View.GONE);
             btnLogs.setVisibility(View.GONE);
             cbVerboseLog.setVisibility(View.GONE);
+            if (cbAskPassword != null) cbAskPassword.setVisibility(View.GONE);
         }
 
         findViewById(R.id.btnToggleServer).setOnClickListener(v -> {

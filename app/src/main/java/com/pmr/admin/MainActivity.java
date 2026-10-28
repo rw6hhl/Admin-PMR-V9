@@ -95,7 +95,6 @@ public class MainActivity extends AppCompatActivity {
             AppLog.add("MainActivity: BroadcastReceiver получил PMR_VOICE_RECEIVED, number=" + clientNumber);
             if (clientNumber != -1) {
                 if (!showListNames) {
-                    // V10.0: показываем только количество в канале (из cmd=110)
                     String text = lastUserCount >= 0 ? String.valueOf(lastUserCount) : "";
                     AppLog.add("MainActivity: show_list_names=false → CALL показывает количество: " + text);
                     tvSpeakingId.setText(text);
@@ -169,12 +168,12 @@ public class MainActivity extends AppCompatActivity {
         }
 
         String savedVersion = prefs.getString("app_version", "0");
-        if (!savedVersion.equals("10.0")) {
+        if (!savedVersion.equals("10.1")) {
             prefs.edit()
-                .putString("app_version", "10.0")
-                .putString("MyMailIndex", "51953")
-                .putString("Priznak_pmr", "26000")
-                .putInt("PORT_prm", 5253)
+                .putString("app_version", "10.1")
+                .putString("MyMailIndex", "111111")
+                .putString("Priznak_pmr", "22222")
+                .putInt("PORT_prm", 5353)
                 .putInt("PORT_prd", 16000)
                 .putString("ip_server", "185.221.154.39")
                 .putInt("current_channel", 4)
@@ -189,7 +188,7 @@ public class MainActivity extends AppCompatActivity {
                 .putBoolean("onAgc", true)
                 .putBoolean("show_list_names", false)
                 .apply();
-            AppLog.add("MainActivity: Настройки сброшены (V10.0): ptt_latch=true, sound=false, mic=5.0/on, din=5.0/on, agc=true, show_list_names=false");
+            AppLog.add("MainActivity: Настройки сброшены (V10.1): Mail=111111, Priznak=22222, PORT_prm=5353, PORT_prd=16000, mic=5.0/on, din=5.0/on, agc=true, sound=false, show_list=false, ptt_latch=true");
         }
 
         pttLatchEnabled = prefs.getBoolean("ptt_latch_enabled", true);
@@ -214,7 +213,7 @@ public class MainActivity extends AppCompatActivity {
         updateUI();
         updatePowerButton();
 
-        AppLog.add("MainActivity: onCreate — сервис НЕ стартует автоматически (V10.0)");
+        AppLog.add("MainActivity: onCreate — сервис НЕ стартует автоматически (V10.1)");
     }
 
     private void beep() {
@@ -385,16 +384,24 @@ public class MainActivity extends AppCompatActivity {
         btnSave4.setOnLongClickListener(v -> { beep(); savePreset(4); return true; });
         btnSave5.setOnLongClickListener(v -> { beep(); savePreset(5); return true; });
 
+        // V10.1: PTT — при выключенном сервисе Toast «Включите программу»
         btnPTT.setOnTouchListener((v, event) -> {
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
                     pttDownTime = System.currentTimeMillis();
                     pttHoldActive = false;
                     AppLog.add("MainActivity: PTT DOWN, pttLatched=" + pttLatched
-                            + ", tapPending=" + pttTapPending);
+                            + ", tapPending=" + pttTapPending
+                            + ", serviceRunning=" + PmrService.isRunning);
+                    if (!PmrService.isRunning) {
+                        AppLog.add("MainActivity: PTT DOWN — сервис не запущен, Toast «Включите программу»");
+                        Toast.makeText(this, "Включите программу", Toast.LENGTH_SHORT).show();
+                        return true;
+                    }
                     return true;
 
                 case MotionEvent.ACTION_MOVE:
+                    if (!PmrService.isRunning) return true;
                     if (!pttHoldActive && !pttLatched) {
                         long dt = System.currentTimeMillis() - pttDownTime;
                         if (dt >= PTT_TAP_MAX_MS) {
@@ -417,6 +424,14 @@ public class MainActivity extends AppCompatActivity {
                             + ", pttLatched=" + pttLatched
                             + ", tapPending=" + pttTapPending
                             + ", cancel=" + isCancel);
+
+                    if (!PmrService.isRunning) {
+                        AppLog.add("MainActivity: PTT UP — сервис не запущен, ничего не отправляем");
+                        pttHoldActive = false;
+                        pttTapPending = false;
+                        tapHandler.removeCallbacks(singleTapRunnable);
+                        return true;
+                    }
 
                     if (pttHoldActive) {
                         pttHoldActive = false;
@@ -472,6 +487,11 @@ public class MainActivity extends AppCompatActivity {
 
     private void startPttLatch() {
         if (pttLatched) return;
+        if (!PmrService.isRunning) {
+            AppLog.add("MainActivity: startPttLatch — сервис не запущен, Toast «Включите программу»");
+            Toast.makeText(this, "Включите программу", Toast.LENGTH_SHORT).show();
+            return;
+        }
         pttLatched = true;
         blinkState = false;
         imgRed.setVisibility(View.VISIBLE);
@@ -533,9 +553,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /**
-     * V10.0: показываем количество пользователей на ВСЕХ каналах, включая 4 и 5.
-     */
     private void updateActiveUsers(int count) {
         if (tvActiveUsers == null) return;
         tvActiveUsers.setText(String.valueOf(count));
@@ -544,10 +561,10 @@ public class MainActivity extends AppCompatActivity {
     private void savePreset(int presetNum) {
         SharedPreferences.Editor editor = prefs.edit();
         editor.putInt("preset_channel_" + presetNum, currentChannel);
-        editor.putString("preset_index_" + presetNum, prefs.getString("MyMailIndex", "51953"));
-        editor.putString("preset_priznak_" + presetNum, prefs.getString("Priznak_pmr", "26000"));
+        editor.putString("preset_index_" + presetNum, prefs.getString("MyMailIndex", "111111"));
+        editor.putString("preset_priznak_" + presetNum, prefs.getString("Priznak_pmr", "22222"));
         editor.putString("preset_ip_" + presetNum, prefs.getString("ip_server", "185.221.154.39"));
-        editor.putInt("preset_port_prm_" + presetNum, prefs.getInt("PORT_prm", 5253));
+        editor.putInt("preset_port_prm_" + presetNum, prefs.getInt("PORT_prm", 5353));
         editor.putInt("preset_port_prd_" + presetNum, prefs.getInt("PORT_prd", 16000));
         editor.apply();
 
@@ -555,23 +572,23 @@ public class MainActivity extends AppCompatActivity {
                 "Канал: " + currentChannel + "\n" +
                 "Индекс: " + prefs.getString("MyMailIndex", "") + "\n" +
                 "Признак: " + prefs.getString("Priznak_pmr", "") + "\n" +
-                "PORT_prm: " + prefs.getInt("PORT_prm", 5253) + "\n" +
+                "PORT_prm: " + prefs.getInt("PORT_prm", 5353) + "\n" +
                 "PORT_prd: " + prefs.getInt("PORT_prd", 16000) + "\n" +
                 "IP: " + prefs.getString("ip_server", "");
         AppLog.add("MainActivity: savePreset(" + presetNum + ") — channel=" + currentChannel
                 + ", index=" + prefs.getString("MyMailIndex", "")
                 + ", priznak=" + prefs.getString("Priznak_pmr", "")
-                + ", PORT_prm=" + prefs.getInt("PORT_prm", 5253)
+                + ", PORT_prm=" + prefs.getInt("PORT_prm", 5353)
                 + ", PORT_prd=" + prefs.getInt("PORT_prd", 16000));
         Toast.makeText(this, info, Toast.LENGTH_LONG).show();
     }
 
     private void loadPreset(int presetNum) {
         int channel = prefs.getInt("preset_channel_" + presetNum, currentChannel);
-        String index = prefs.getString("preset_index_" + presetNum, prefs.getString("MyMailIndex", "51953"));
-        String priznak = prefs.getString("preset_priznak_" + presetNum, prefs.getString("Priznak_pmr", "26000"));
+        String index = prefs.getString("preset_index_" + presetNum, prefs.getString("MyMailIndex", "111111"));
+        String priznak = prefs.getString("preset_priznak_" + presetNum, prefs.getString("Priznak_pmr", "22222"));
         String ip = prefs.getString("preset_ip_" + presetNum, prefs.getString("ip_server", "185.221.154.39"));
-        int prm = prefs.getInt("preset_port_prm_" + presetNum, prefs.getInt("PORT_prm", 5253));
+        int prm = prefs.getInt("preset_port_prm_" + presetNum, prefs.getInt("PORT_prm", 5353));
         int prd = prefs.getInt("preset_port_prd_" + presetNum, prefs.getInt("PORT_prd", 16000));
 
         currentChannel = channel;
@@ -610,7 +627,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void updateUI() {
         tvChannel.setText(currentChannel == 0 ? "R" : String.valueOf(currentChannel));
-        tvIndex.setText(prefs.getString("MyMailIndex", "51953"));
+        tvIndex.setText(prefs.getString("MyMailIndex", "111111"));
         tvVersion.setText("v" + BuildConfig.VERSION_NAME);
 
         if (isAdminMode) {
