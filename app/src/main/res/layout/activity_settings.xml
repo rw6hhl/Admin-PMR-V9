@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -134,7 +134,7 @@
                     android:textSize="18sp" />
                 <EditText
                     android:id="@+id/editIp"
-                    android:layout_width="150dp"
+                    android:layout_width="200dp"
                     android:layout_height="wrap_content"
                     android:backgroundTint="@color/colortextabout"
                     android:inputType="text"
@@ -142,13 +142,31 @@
                     android:textSize="18sp" />
             </LinearLayout>
 
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btnToggleParams"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/roundshapebtn"
+            android:text="Настройки параметров"
+            android:textColor="@color/colorButton"
+            android:layout_marginBottom="16dp" />
+
+        <LinearLayout
+            android:id="@+id/layoutParamsSettings"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
             <CheckBox
                 android:id="@+id/cbPttLatch"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Постоянная передача (двойной тап по PTT)"
                 android:textColor="@color/colortextabout"
-                android:checked="true"
+                android:checked="false"
                 android:layout_marginTop="8dp"
                 android:layout_marginBottom="16dp" />
 
@@ -167,8 +185,26 @@
                 android:layout_height="wrap_content"
                 android:text="Запрашивать пароль"
                 android:textColor="@color/colortextabout"
-                android:checked="true"
+                android:checked="false"
                 android:layout_marginTop="8dp"
+                android:layout_marginBottom="16dp" />
+
+            <CheckBox
+                android:id="@+id/cbSimplex"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Симплекс (отключать приём при передаче)"
+                android:textColor="@color/colortextabout"
+                android:checked="false"
+                android:layout_marginBottom="16dp" />
+
+            <CheckBox
+                android:id="@+id/cbShowPowerButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Показывать кнопку ВКЛ/ВЫКЛ (красный/зелёный кружок)"
+                android:textColor="@color/colortextabout"
+                android:checked="false"
                 android:layout_marginBottom="16dp" />
 
             <CheckBox
@@ -222,7 +258,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center_vertical"
-                android:layout_marginBottom="24dp"
+                android:layout_marginBottom="16dp"
                 android:orientation="horizontal">
                 <TextView
                     android:layout_width="0dp"
@@ -241,26 +277,26 @@
                     android:textSize="18sp" />
             </LinearLayout>
 
+            <CheckBox
+                android:id="@+id/cbVerboseLog"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Вести подробный лог"
+                android:textColor="@color/colortextabout"
+                android:checked="false"
+                android:visibility="gone"
+                android:layout_marginBottom="8dp" />
+
+            <CheckBox
+                android:id="@+id/cbSoundEnabled"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Звук кнопок"
+                android:textColor="@color/colortextabout"
+                android:checked="false"
+                android:layout_marginBottom="16dp" />
+
         </LinearLayout>
-
-        <CheckBox
-            android:id="@+id/cbVerboseLog"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Вести подробный лог"
-            android:textColor="@color/colortextabout"
-            android:checked="true"
-            android:visibility="gone"
-            android:layout_marginBottom="8dp" />
-
-        <CheckBox
-            android:id="@+id/cbSoundEnabled"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Звук кнопок (тон 1500 Гц)"
-            android:textColor="@color/colortextabout"
-            android:checked="false"
-            android:layout_marginBottom="16dp" />
 
         <Button
             android:id="@+id/btnCodecDialog"

@@ -1,4 +1,4 @@
-package com.pmr.admin;
+﻿package com.pmr.admin;
 
 import android.content.Context;
 import android.content.Intent;
@@ -78,7 +78,8 @@ public class PmrSocket {
         this.prefs = context.getSharedPreferences("pmr_prefs", Context.MODE_PRIVATE);
         loadSettings();
         try {
-            this.serverAddr = InetAddress.getByName("185.221.154.39");
+            String ip = prefs.getString("ip_server", "109.172.7.155");
+            this.serverAddr = InetAddress.getByName(ip);
             this.socket = createSocket(portPrm);
             this.socket.setSoTimeout(1000);
             AppLog.add("PmrSocket: Сокет открыт, порт=" + portPrm + ", IP=" + serverAddr.getHostAddress());
@@ -117,7 +118,7 @@ public class PmrSocket {
         try {
             Priznak_pmr = Integer.parseInt(prefs.getString("Priznak_pmr", "22222"));
         } catch (Exception ignored) {}
-        portPrm = prefs.getInt("PORT_prm", 5353);
+        portPrm = prefs.getInt("PORT_prm", 15000);
         portPrd = prefs.getInt("PORT_prd", 16000);
 
         kanalSecret = (myMailIndex & 0xFFFFFFF0) >> 4;
@@ -140,9 +141,9 @@ public class PmrSocket {
             Priznak_pmr = Integer.parseInt(sp.getString("Priznak_pmr", "22222"));
         } catch (Exception ignored) {}
         portPrd = sp.getInt("PORT_prd", 16000);
-        portPrm = sp.getInt("PORT_prm", 5353);
+        portPrm = sp.getInt("PORT_prm", 15000);
         try {
-            String ip = sp.getString("ip_server", "185.221.154.39");
+            String ip = sp.getString("ip_server", "109.172.7.155");
             serverAddr = InetAddress.getByName(ip);
         } catch (Exception ignored) {}
         int myPChannel = sp.getInt("current_channel", 4);

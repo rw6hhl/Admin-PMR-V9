@@ -1,4 +1,4 @@
-package com.pmr.admin;
+﻿package com.pmr.admin;
 
 import android.Manifest;
 import android.content.BroadcastReceiver;
@@ -46,11 +46,11 @@ public class MainActivity extends AppCompatActivity {
     private PowerManager.WakeLock wakeLock;
     private int currentChannel = 4;
     private ToneGenerator toneGen;
-    private boolean soundEnabled = true;
+    private boolean soundEnabled = false;
 
     private GestureDetector gestureDetector;
 
-    private boolean pttLatchEnabled = true;
+    private boolean pttLatchEnabled = false;
     private boolean pttLatched = false;
     private long pttDownTime = 0L;
     private boolean pttHoldActive = false;
@@ -160,7 +160,7 @@ public class MainActivity extends AppCompatActivity {
         prefs = getSharedPreferences("pmr_prefs", MODE_PRIVATE);
         AppLog.add("MainActivity: onCreate");
 
-        soundEnabled = prefs.getBoolean("sound_enabled", true);
+        soundEnabled = prefs.getBoolean("sound_enabled", false);
         try {
             toneGen = new ToneGenerator(AudioManager.STREAM_NOTIFICATION, 80);
         } catch (Exception e) {
@@ -168,30 +168,33 @@ public class MainActivity extends AppCompatActivity {
         }
 
         String savedVersion = prefs.getString("app_version", "0");
-        if (!savedVersion.equals("10.1")) {
+        if (!savedVersion.equals("10.4")) {
             prefs.edit()
-                .putString("app_version", "10.1")
+                .putString("app_version", "10.4")
                 .putString("MyMailIndex", "111111")
                 .putString("Priznak_pmr", "22222")
-                .putInt("PORT_prm", 5353)
+                .putInt("PORT_prm", 15000)
                 .putInt("PORT_prd", 16000)
-                .putString("ip_server", "185.221.154.39")
+                .putString("ip_server", "109.172.7.155")
                 .putInt("current_channel", 4)
-                .putBoolean("simplex", true)
+                .putBoolean("simplex", false)
                 .putBoolean("is_admin_mode", false)
-                .putBoolean("ptt_latch_enabled", true)
+                .putBoolean("ptt_latch_enabled", false)
                 .putBoolean("sound_enabled", false)
                 .putFloat("MicUsildouble", 5.0f)
-                .putBoolean("onUsilMic", true)
+                .putBoolean("onUsilMic", false)
                 .putFloat("DinUsildouble", 5.0f)
-                .putBoolean("onUsilDin", true)
-                .putBoolean("onAgc", true)
+                .putBoolean("onUsilDin", false)
+                .putBoolean("onAgc", false)
                 .putBoolean("show_list_names", false)
+                .putBoolean("ask_password", false)
+                .putBoolean("verbose_log", false)
+                .putBoolean("show_power_button", false)
                 .apply();
-            AppLog.add("MainActivity: Настройки сброшены (V10.1): Mail=111111, Priznak=22222, PORT_prm=5353, PORT_prd=16000, mic=5.0/on, din=5.0/on, agc=true, sound=false, show_list=false, ptt_latch=true");
+            AppLog.add("MainActivity: Настройки сброшены (V10.4): Mail=111111, Priznak=22222, PORT_prm=15000, PORT_prd=16000, ip=109.172.7.155, все галочки=false");
         }
 
-        pttLatchEnabled = prefs.getBoolean("ptt_latch_enabled", true);
+        pttLatchEnabled = prefs.getBoolean("ptt_latch_enabled", false);
         showListNames = prefs.getBoolean("show_list_names", false);
 
         requestMicPermission();
@@ -213,7 +216,7 @@ public class MainActivity extends AppCompatActivity {
         updateUI();
         updatePowerButton();
 
-        AppLog.add("MainActivity: onCreate — сервис НЕ стартует автоматически (V10.1)");
+        AppLog.add("MainActivity: onCreate — сервис НЕ стартует автоматически (V10.4)");
     }
 
     private void beep() {
@@ -384,7 +387,7 @@ public class MainActivity extends AppCompatActivity {
         btnSave4.setOnLongClickListener(v -> { beep(); savePreset(4); return true; });
         btnSave5.setOnLongClickListener(v -> { beep(); savePreset(5); return true; });
 
-        // V10.1: PTT — при выключенном сервисе Toast «Включите программу»
+        // V10.4: PTT — при выключенном сервисе Toast «Включите программу»
         btnPTT.setOnTouchListener((v, event) -> {
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
@@ -544,6 +547,12 @@ public class MainActivity extends AppCompatActivity {
 
     private void updatePowerButton() {
         if (btnPower == null) return;
+        boolean showPower = prefs.getBoolean("show_power_button", false);
+        btnPower.setVisibility(showPower ? View.VISIBLE : View.GONE);
+        if (!showPower) {
+            AppLog.add("MainActivity: updatePowerButton → кнопка скрыта (show_power_button=false)");
+            return;
+        }
         if (PmrService.isRunning) {
             btnPower.setImageResource(R.drawable.power_on);
             AppLog.add("MainActivity: updatePowerButton → ЗЕЛЁНЫЙ КРУЖОК (работает)");
@@ -563,8 +572,8 @@ public class MainActivity extends AppCompatActivity {
         editor.putInt("preset_channel_" + presetNum, currentChannel);
         editor.putString("preset_index_" + presetNum, prefs.getString("MyMailIndex", "111111"));
         editor.putString("preset_priznak_" + presetNum, prefs.getString("Priznak_pmr", "22222"));
-        editor.putString("preset_ip_" + presetNum, prefs.getString("ip_server", "185.221.154.39"));
-        editor.putInt("preset_port_prm_" + presetNum, prefs.getInt("PORT_prm", 5353));
+        editor.putString("preset_ip_" + presetNum, prefs.getString("ip_server", "109.172.7.155"));
+        editor.putInt("preset_port_prm_" + presetNum, prefs.getInt("PORT_prm", 15000));
         editor.putInt("preset_port_prd_" + presetNum, prefs.getInt("PORT_prd", 16000));
         editor.apply();
 
@@ -572,13 +581,13 @@ public class MainActivity extends AppCompatActivity {
                 "Канал: " + currentChannel + "\n" +
                 "Индекс: " + prefs.getString("MyMailIndex", "") + "\n" +
                 "Признак: " + prefs.getString("Priznak_pmr", "") + "\n" +
-                "PORT_prm: " + prefs.getInt("PORT_prm", 5353) + "\n" +
+                "PORT_prm: " + prefs.getInt("PORT_prm", 15000) + "\n" +
                 "PORT_prd: " + prefs.getInt("PORT_prd", 16000) + "\n" +
                 "IP: " + prefs.getString("ip_server", "");
         AppLog.add("MainActivity: savePreset(" + presetNum + ") — channel=" + currentChannel
                 + ", index=" + prefs.getString("MyMailIndex", "")
                 + ", priznak=" + prefs.getString("Priznak_pmr", "")
-                + ", PORT_prm=" + prefs.getInt("PORT_prm", 5353)
+                + ", PORT_prm=" + prefs.getInt("PORT_prm", 15000)
                 + ", PORT_prd=" + prefs.getInt("PORT_prd", 16000));
         Toast.makeText(this, info, Toast.LENGTH_LONG).show();
     }
@@ -587,8 +596,8 @@ public class MainActivity extends AppCompatActivity {
         int channel = prefs.getInt("preset_channel_" + presetNum, currentChannel);
         String index = prefs.getString("preset_index_" + presetNum, prefs.getString("MyMailIndex", "111111"));
         String priznak = prefs.getString("preset_priznak_" + presetNum, prefs.getString("Priznak_pmr", "22222"));
-        String ip = prefs.getString("preset_ip_" + presetNum, prefs.getString("ip_server", "185.221.154.39"));
-        int prm = prefs.getInt("preset_port_prm_" + presetNum, prefs.getInt("PORT_prm", 5353));
+        String ip = prefs.getString("preset_ip_" + presetNum, prefs.getString("ip_server", "109.172.7.155"));
+        int prm = prefs.getInt("preset_port_prm_" + presetNum, prefs.getInt("PORT_prm", 15000));
         int prd = prefs.getInt("preset_port_prd_" + presetNum, prefs.getInt("PORT_prd", 16000));
 
         currentChannel = channel;
@@ -645,7 +654,7 @@ public class MainActivity extends AppCompatActivity {
         soundEnabled = prefs.getBoolean("sound_enabled", false);
         isAdminMode = prefs.getBoolean("is_admin_mode", false);
         currentChannel = prefs.getInt("current_channel", 4);
-        pttLatchEnabled = prefs.getBoolean("ptt_latch_enabled", true);
+        pttLatchEnabled = prefs.getBoolean("ptt_latch_enabled", false);
         showListNames = prefs.getBoolean("show_list_names", false);
         AppLog.add("MainActivity: onResume, isAdminMode=" + isAdminMode
                 + ", currentChannel=" + currentChannel

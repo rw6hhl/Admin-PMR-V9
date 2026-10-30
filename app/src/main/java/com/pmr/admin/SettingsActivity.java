@@ -1,4 +1,4 @@
-package com.pmr.admin;
+﻿package com.pmr.admin;
 
 import android.app.AlertDialog;
 import android.content.Intent;
@@ -22,9 +22,10 @@ public class SettingsActivity extends AppCompatActivity {
     private EditText editMailIndex, editPriznak, editPortPrm, editPortPrd, editIp;
     private EditText editUsilMic, editUsilDin;
     private CheckBox cbUsilMic, cbUsilDin, cbAgc;
-    private LinearLayout layoutServerSettings;
+    private LinearLayout layoutServerSettings, layoutParamsSettings;
     private Button btnChanList, btnLogs, btnLoadList;
     private CheckBox cbVerboseLog, cbSoundEnabled, cbAskPassword, cbPttLatch, cbShowListNames;
+    private CheckBox cbSimplex, cbShowPowerButton;
 
     private final ActivityResultLauncher<String[]> openListLauncher =
             registerForActivityResult(new ActivityResultContracts.OpenDocument(), uri -> {
@@ -68,6 +69,7 @@ public class SettingsActivity extends AppCompatActivity {
         editPortPrd = findViewById(R.id.editPortPrd);
         editIp = findViewById(R.id.editIp);
         layoutServerSettings = findViewById(R.id.layoutServerSettings);
+        layoutParamsSettings = findViewById(R.id.layoutParamsSettings);
         btnChanList = findViewById(R.id.btnChanList);
         btnLogs = findViewById(R.id.btnLogs);
         btnLoadList = findViewById(R.id.btnLoadList);
@@ -76,6 +78,8 @@ public class SettingsActivity extends AppCompatActivity {
         cbAskPassword = findViewById(R.id.cbAskPassword);
         cbPttLatch = findViewById(R.id.cbPttLatch);
         cbShowListNames = findViewById(R.id.cbShowListNames);
+        cbSimplex = findViewById(R.id.cbSimplex);
+        cbShowPowerButton = findViewById(R.id.cbShowPowerButton);
 
         cbUsilMic = findViewById(R.id.cbUsilMic);
         editUsilMic = findViewById(R.id.editUsilMic);
@@ -85,20 +89,20 @@ public class SettingsActivity extends AppCompatActivity {
 
         editMailIndex.setText(prefs.getString("MyMailIndex", "111111"));
         editPriznak.setText(prefs.getString("Priznak_pmr", "22222"));
-        editPortPrm.setText(String.valueOf(prefs.getInt("PORT_prm", 5353)));
+        editPortPrm.setText(String.valueOf(prefs.getInt("PORT_prm", 15000)));
         editPortPrd.setText(String.valueOf(prefs.getInt("PORT_prd", 16000)));
-        editIp.setText(prefs.getString("ip_server", "185.221.154.39"));
+        editIp.setText(prefs.getString("ip_server", "109.172.7.155"));
 
-        cbUsilMic.setChecked(prefs.getBoolean("onUsilMic", true));
+        cbUsilMic.setChecked(prefs.getBoolean("onUsilMic", false));
         editUsilMic.setText(String.valueOf(prefs.getFloat("MicUsildouble", 5.0f)));
 
-        cbAgc.setChecked(prefs.getBoolean("onAgc", true));
+        cbAgc.setChecked(prefs.getBoolean("onAgc", false));
 
-        cbUsilDin.setChecked(prefs.getBoolean("onUsilDin", true));
+        cbUsilDin.setChecked(prefs.getBoolean("onUsilDin", false));
         editUsilDin.setText(String.valueOf(prefs.getFloat("DinUsildouble", 5.0f)));
 
         if (cbPttLatch != null) {
-            cbPttLatch.setChecked(prefs.getBoolean("ptt_latch_enabled", true));
+            cbPttLatch.setChecked(prefs.getBoolean("ptt_latch_enabled", false));
             cbPttLatch.setOnCheckedChangeListener((b, checked) -> {
                 prefs.edit().putBoolean("ptt_latch_enabled", checked).apply();
                 AppLog.add("SettingsActivity: ptt_latch_enabled=" + checked);
@@ -114,15 +118,31 @@ public class SettingsActivity extends AppCompatActivity {
         }
 
         if (cbAskPassword != null) {
-            cbAskPassword.setChecked(prefs.getBoolean("ask_password", true));
+            cbAskPassword.setChecked(prefs.getBoolean("ask_password", false));
             cbAskPassword.setOnCheckedChangeListener((b, checked) -> {
                 prefs.edit().putBoolean("ask_password", checked).apply();
                 AppLog.add("SettingsActivity: ask_password=" + checked);
             });
         }
 
+        if (cbSimplex != null) {
+            cbSimplex.setChecked(prefs.getBoolean("simplex", false));
+            cbSimplex.setOnCheckedChangeListener((b, checked) -> {
+                prefs.edit().putBoolean("simplex", checked).apply();
+                AppLog.add("SettingsActivity: simplex=" + checked);
+            });
+        }
+
+        if (cbShowPowerButton != null) {
+            cbShowPowerButton.setChecked(prefs.getBoolean("show_power_button", false));
+            cbShowPowerButton.setOnCheckedChangeListener((b, checked) -> {
+                prefs.edit().putBoolean("show_power_button", checked).apply();
+                AppLog.add("SettingsActivity: show_power_button=" + checked);
+            });
+        }
+
         if (cbVerboseLog != null) {
-            cbVerboseLog.setChecked(prefs.getBoolean("verbose_log", true));
+            cbVerboseLog.setChecked(prefs.getBoolean("verbose_log", false));
             cbVerboseLog.setOnCheckedChangeListener((b, checked) -> {
                 prefs.edit().putBoolean("verbose_log", checked).apply();
                 AppLog.setVerbose(checked);
@@ -138,7 +158,7 @@ public class SettingsActivity extends AppCompatActivity {
             });
         }
 
-        // V10.1: видимость cbAskPassword — только в админке
+        // V10.4: видимость — cbAskPassword и cbVerboseLog только в админке
         boolean isAdmin = prefs.getBoolean("is_admin_mode", false);
         if (isAdmin) {
             btnChanList.setVisibility(View.VISIBLE);
@@ -154,6 +174,10 @@ public class SettingsActivity extends AppCompatActivity {
 
         findViewById(R.id.btnToggleServer).setOnClickListener(v -> {
             layoutServerSettings.setVisibility(layoutServerSettings.getVisibility() == View.GONE ? View.VISIBLE : View.GONE);
+        });
+
+        findViewById(R.id.btnToggleParams).setOnClickListener(v -> {
+            layoutParamsSettings.setVisibility(layoutParamsSettings.getVisibility() == View.GONE ? View.VISIBLE : View.GONE);
         });
 
         findViewById(R.id.btnCodecDialog).setOnClickListener(v -> showCodecDialog());
@@ -221,7 +245,9 @@ public class SettingsActivity extends AppCompatActivity {
                 + ", agc=" + cbAgc.isChecked()
                 + ", din=" + cbUsilDin.isChecked() + "/" + editUsilDin.getText()
                 + ", ptt_latch=" + (cbPttLatch != null ? cbPttLatch.isChecked() : "n/a")
-                + ", show_list=" + (cbShowListNames != null ? cbShowListNames.isChecked() : "n/a"));
+                + ", show_list=" + (cbShowListNames != null ? cbShowListNames.isChecked() : "n/a")
+                + ", simplex=" + (cbSimplex != null ? cbSimplex.isChecked() : "n/a")
+                + ", show_power=" + (cbShowPowerButton != null ? cbShowPowerButton.isChecked() : "n/a"));
 
         if (PmrService.pmrSocket != null) {
             PmrService.pmrSocket.recreateSocket(this);
