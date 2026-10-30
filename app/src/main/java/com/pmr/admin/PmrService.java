@@ -37,41 +37,32 @@ public class PmrService extends Service {
         }
     }
 
-    /**
-     * V10.4: симплекс-режим — ключ "simplex" в pmr_prefs.
-     * true  → при передаче приём отключается (stopPlaying), после — включается (startPlaying).
-     * false → дуплекс (приём и передача одновременно), по умолчанию.
-     */
-    public static boolean isSimplex() {
-        if (pmrSocket == null) {
-            // fallback — читаем напрямую, если сокет ещё не создан
-            return false;
-        }
-        SharedPreferences sp = pmrSocket.getAppContext()
-                .getSharedPreferences("pmr_prefs", Context.MODE_PRIVATE);
-        return sp.getBoolean("simplex", false);
+    private boolean isSimplex() {
+        SharedPreferences prefs = getSharedPreferences("pmr_prefs", MODE_PRIVATE);
+        return prefs.getBoolean("simplex", false);
     }
 
     private BroadcastReceiver controlReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             String action = intent.getAction();
-            boolean simplex = isSimplex();
             if ("PMR_START_RECORDING".equals(action)) {
-                AppLog.add("PmrService: PMR_START_RECORDING → startRecording, simplex=" + simplex);
+                boolean simplex = isSimplex();
+                AppLog.add("PmrService: PMR_START_RECORDING → startRecording (simplex=" + simplex + ")");
                 if (audioEngine != null) {
-                    if (simplex && audioEngine.isPlaying()) {
-                        AppLog.add("PmrService: simplex=true → stopPlaying() перед startRecording()");
+                    if (simplex) {
+                        AppLog.add("PmrService: simplex → stopPlaying перед startRecording");
                         audioEngine.stopPlaying();
                     }
                     audioEngine.startRecording();
                 }
             } else if ("PMR_STOP_RECORDING".equals(action)) {
-                AppLog.add("PmrService: PMR_STOP_RECORDING → stopRecording, simplex=" + simplex);
+                boolean simplex = isSimplex();
+                AppLog.add("PmrService: PMR_STOP_RECORDING → stopRecording (simplex=" + simplex + ")");
                 if (audioEngine != null) {
                     audioEngine.stopRecording();
                     if (simplex) {
-                        AppLog.add("PmrService: simplex=true → startPlaying() после stopRecording()");
+                        AppLog.add("PmrService: simplex → startPlaying после stopRecording");
                         audioEngine.startPlaying();
                     }
                 }
@@ -103,7 +94,7 @@ public class PmrService extends Service {
         createChannel();
         startForeground(NOTIF_ID, buildNotification());
         isRunning = true;
-        AppLog.add("PmrService: служба запущена, audioEngine и pmrSocket созданы, isRunning=true");
+        AppLog.add("PmrService: служба запущена, audioEngine и pmrSocket созданы, isRunning=true, simplex=" + isSimplex());
     }
 
     @Override
