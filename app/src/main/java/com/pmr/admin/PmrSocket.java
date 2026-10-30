@@ -1,4 +1,4 @@
-﻿package com.pmr.admin;
+package com.pmr.admin;
 
 import android.content.Context;
 import android.content.Intent;
