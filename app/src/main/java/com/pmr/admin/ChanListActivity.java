@@ -1,6 +1,7 @@
 package com.pmr.admin;
 
 import android.os.Bundle;
+import android.widget.Button;
 import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -60,6 +61,29 @@ public class ChanListActivity extends AppCompatActivity implements PmrSocket.OnC
         });
         recyclerView.setAdapter(adapter);
         AppLog.add("ChanListActivity: adapter установлен");
+
+        Button btnRefreshList = findViewById(R.id.btnRefreshList);
+        if (btnRefreshList == null) {
+            AppLog.add("ChanListActivity: ОШИБКА — btnRefreshList не найден в activity_chan_list.xml");
+        } else {
+            btnRefreshList.setOnClickListener(v -> {
+                AppLog.add("ChanListActivity: btnRefreshList → requestChanList()");
+                if (PmrService.getPmrSocket() != null) {
+                    new Thread(() -> {
+                        try {
+                            PmrService.getPmrSocket().requestChanList();
+                        } catch (Exception e) {
+                            AppLog.add("ChanListActivity: ошибка requestChanList (кнопка) — " + e.getMessage());
+                        }
+                    }).start();
+                    Toast.makeText(this, "Запрос списка отправлен...", Toast.LENGTH_SHORT).show();
+                } else {
+                    AppLog.add("ChanListActivity: pmrSocket == null — сервис не запущен (кнопка)");
+                    Toast.makeText(this, "Сервис не запущен", Toast.LENGTH_SHORT).show();
+                }
+            });
+            AppLog.add("ChanListActivity: btnRefreshList подключён");
+        }
 
         PmrService.setChanListListener(this);
         PmrService.setVoiceListener(this);
