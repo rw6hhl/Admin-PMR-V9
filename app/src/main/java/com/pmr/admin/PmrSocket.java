@@ -88,9 +88,6 @@ public class PmrSocket {
         }
     }
 
-    /**
-     * V10.2: создание сокета с setReuseAddress(true), чтобы избежать EADDRINUSE.
-     */
     private DatagramSocket createSocket(int port) throws Exception {
         DatagramSocket s = new DatagramSocket(null);
         s.setReuseAddress(true);
@@ -160,7 +157,6 @@ public class PmrSocket {
     public void recreateSocket(Context context) {
         AppLog.add("PmrSocket: recreateSocket — старт");
         isRunning = false;
-        // V10.3: прерываем adminInfoThread, чтобы не накапливались дубли cmd=77/88
         if (adminInfoThread != null) {
             try { adminInfoThread.interrupt(); } catch (Exception ignored) {}
             try { adminInfoThread.join(500); } catch (Exception ignored) {}
@@ -262,15 +258,7 @@ public class PmrSocket {
         pingThread.start();
     }
 
-    /**
-     * V10.0: раз в 10 секунд, только в режиме Админа.
-     * cmd=77 — признак (4 байта).
-     * cmd=88 — имя (2 байта ID + "Admin lin" + \0).
-     * V10.3: один поток (interrupt предыдущего в recreateSocket/stop).
-     * Логирование принудительное (без verbose).
-     */
     private void startAdminInfoThread() {
-        // V10.3: страховка — если старый поток ещё жив, прерываем его
         if (adminInfoThread != null) {
             try { adminInfoThread.interrupt(); } catch (Exception ignored) {}
             adminInfoThread = null;
@@ -374,9 +362,6 @@ public class PmrSocket {
         }
     }
 
-    /**
-     * V10.0: приём имени от другого админа (cmd=88). Только в режиме Админа.
-     */
     private void parseAdminName(byte[] data) {
         if (data.length < 7) return;
         if (appContext == null) return;
@@ -469,26 +454,23 @@ public class PmrSocket {
     }
 
     /**
-     * V9.81: cmd=234 запрашивается ТОЛЬКО на канале 5.
+     * V9.84: cmd=234 запрашивается на ЛЮБОМ канале (0–8), Вариант A.
+     * cmd[1] = kanalPrd, порт = portPrd + kanalPrd.
      */
     public void requestChanList() {
         if (socket == null || socket.isClosed()) {
             AppLog.add("PmrSocket: requestChanList — сокет null/closed, пропуск");
             return;
         }
-        if (prefs.getInt("current_channel", 4) != 5) {
-            AppLog.add("PmrSocket: requestChanList — канал не 5, пропуск (cmd=234 только для канала 5)");
-            return;
-        }
         try {
             byte[] cmd = new byte[4];
             cmd[0] = (byte) 234;
-            cmd[1] = 13;
+            cmd[1] = (byte) (kanalPrd & 0xFF);
             cmd[2] = 0;
             cmd[3] = 0;
-            int listPort = portPrd + 13;
+            int listPort = portPrd + kanalPrd;
             socket.send(new DatagramPacket(cmd, 4, serverAddr, listPort));
-            AppLog.add("PmrSocket: → cmd=234 отправлен, порт=" + listPort + ", kanal=13 (канал 5)");
+            AppLog.add("PmrSocket: → cmd=234 отправлен, порт=" + listPort + ", kanal=" + kanalPrd);
         } catch (IOException e) {
             AppLog.add("PmrSocket: ОШИБКА cmd=234 — " + e.getMessage());
         }
@@ -525,15 +507,12 @@ public class PmrSocket {
     }
 
     /**
-     * V9.81: cmd=222 (БАН/РАЗБАН) — только на канале 5.
+     * V9.84: cmd=222 (БАН/РАЗБАН) — на ЛЮБОМ канале (0–8), Вариант A.
+     * cmd[1] = kanalPrd, порт = portPrd + kanalPrd.
      */
     public void sendBan(final int targetNumber, final int targetId) {
         if (socket == null || socket.isClosed()) {
             AppLog.add("PmrSocket: sendBan — сокет null/closed, пропуск (number=" + targetNumber + ")");
-            return;
-        }
-        if (prefs.getInt("current_channel", 4) != 5) {
-            AppLog.add("PmrSocket: sendBan — канал не 5, пропуск (cmd=222 только для канала 5)");
             return;
         }
 
@@ -545,16 +524,16 @@ public class PmrSocket {
 
             byte[] ban = new byte[4];
             ban[0] = (byte) 222;
-            ban[1] = 13;
+            ban[1] = (byte) (kanalPrd & 0xFF);
             int rawNumber = targetNumber;
             ban[2] = (byte) (rawNumber & 0xFF);
             ban[3] = (byte) ((rawNumber >> 8) & 0xFF);
 
             try {
-                int banPort = portPrd + 13;
+                int banPort = portPrd + kanalPrd;
                 socket.send(new DatagramPacket(ban, 4, serverAddr, banPort));
                 AppLog.add("PmrSocket: → cmd=222 (БАН/РАЗБАН) number=" + targetNumber
-                        + ", id=" + targetId + ", kanal=13, порт=" + banPort + " (канал 5)");
+                        + ", id=" + targetId + ", kanal=" + kanalPrd + ", порт=" + banPort);
 
                 requestChanList();
                 Thread.sleep(300);
@@ -573,7 +552,6 @@ public class PmrSocket {
 
     public void stop() {
         isRunning = false;
-        // V10.3: прерываем adminInfoThread, чтобы не оставался висеть
         if (adminInfoThread != null) {
             try { adminInfoThread.interrupt(); } catch (Exception ignored) {}
             adminInfoThread = null;
