@@ -59,7 +59,7 @@ public class SettingsActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_settings);
-        AppLog.add("SettingsActivity: onCreate");
+        AppLog.add("SettingsActivity: onCreate (V10.5)");
 
         prefs = getSharedPreferences("pmr_prefs", MODE_PRIVATE);
 
@@ -87,10 +87,11 @@ public class SettingsActivity extends AppCompatActivity {
         cbUsilDin = findViewById(R.id.cbUsilDin);
         editUsilDin = findViewById(R.id.editUsilDin);
 
+        // V10.5: дефолты обновлены (PORT_prd=15000, ip=109.172.7.155)
         editMailIndex.setText(prefs.getString("MyMailIndex", "111111"));
         editPriznak.setText(prefs.getString("Priznak_pmr", "22222"));
-        editPortPrm.setText(String.valueOf(prefs.getInt("PORT_prm", 15000)));
-        editPortPrd.setText(String.valueOf(prefs.getInt("PORT_prd", 16000)));
+        editPortPrm.setText(String.valueOf(prefs.getInt("PORT_prm", 5253)));
+        editPortPrd.setText(String.valueOf(prefs.getInt("PORT_prd", 15000)));
         editIp.setText(prefs.getString("ip_server", "109.172.7.155"));
 
         cbUsilMic.setChecked(prefs.getBoolean("onUsilMic", false));
@@ -158,7 +159,7 @@ public class SettingsActivity extends AppCompatActivity {
             });
         }
 
-        // V10.4: видимость — cbAskPassword и cbVerboseLog только в админке
+        // V10.5: видимость — cbAskPassword и cbVerboseLog только в админке
         boolean isAdmin = prefs.getBoolean("is_admin_mode", false);
         if (isAdmin) {
             btnChanList.setVisibility(View.VISIBLE);
