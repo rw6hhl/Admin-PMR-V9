@@ -33,7 +33,7 @@ public class PmrSocket {
     public static int Priznak_pmr = 26000;
     private int myMailIndex = 51953;
     private int portPrm = 5253;
-    private int portPrd = 16000;
+    private int portPrd = 15000;
     private int kanalPrd = 13;
     private int kanalSecret = 0;
     private int clientNumber = -1;
@@ -118,8 +118,8 @@ public class PmrSocket {
         try {
             Priznak_pmr = Integer.parseInt(prefs.getString("Priznak_pmr", "22222"));
         } catch (Exception ignored) {}
-        portPrm = prefs.getInt("PORT_prm", 15000);
-        portPrd = prefs.getInt("PORT_prd", 16000);
+        portPrm = prefs.getInt("PORT_prm", 5253);
+        portPrd = prefs.getInt("PORT_prd", 15000);
 
         kanalSecret = (myMailIndex & 0xFFFFFFF0) >> 4;
 
@@ -140,8 +140,8 @@ public class PmrSocket {
         try {
             Priznak_pmr = Integer.parseInt(sp.getString("Priznak_pmr", "22222"));
         } catch (Exception ignored) {}
-        portPrd = sp.getInt("PORT_prd", 16000);
-        portPrm = sp.getInt("PORT_prm", 15000);
+        portPrd = sp.getInt("PORT_prd", 15000);
+        portPrm = sp.getInt("PORT_prm", 5253);
         try {
             String ip = sp.getString("ip_server", "109.172.7.155");
             serverAddr = InetAddress.getByName(ip);
@@ -250,7 +250,7 @@ public class PmrSocket {
                                 + ", secret=" + kanalSecret);
                     }
 
-                    Thread.sleep(1000);
+                    Thread.sleep(2000);   // V10.8: было 1000, стало 2000 (раз в 2 секунды)
                 } catch (Exception e) {
                     Log.e(TAG, "Ping error: " + e.getMessage());
                 }
@@ -454,10 +454,6 @@ public class PmrSocket {
         return lastVoiceNumber;
     }
 
-    /**
-     * V9.84: cmd=234 запрашивается на ЛЮБОМ канале (0–8), Вариант A.
-     * cmd[1] = kanalPrd, порт = portPrd + kanalPrd.
-     */
     public void requestChanList() {
         if (socket == null || socket.isClosed()) {
             AppLog.add("PmrSocket: requestChanList — сокет null/closed, пропуск");
@@ -507,10 +503,6 @@ public class PmrSocket {
         }).start();
     }
 
-    /**
-     * V9.84: cmd=222 (БАН/РАЗБАН) — на ЛЮБОМ канале (0–8), Вариант A.
-     * cmd[1] = kanalPrd, порт = portPrd + kanalPrd.
-     */
     public void sendBan(final int targetNumber, final int targetId) {
         if (socket == null || socket.isClosed()) {
             AppLog.add("PmrSocket: sendBan — сокет null/closed, пропуск (number=" + targetNumber + ")");
