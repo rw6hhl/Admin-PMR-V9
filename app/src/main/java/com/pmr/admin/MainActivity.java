@@ -361,6 +361,8 @@ public class MainActivity extends AppCompatActivity {
             if (currentChannel < 8) {
                 int old = currentChannel;
                 currentChannel++;
+                lastUserCount = -1;
+                if (tvActiveUsers != null) tvActiveUsers.setText("");
                 updateUI();
                 prefs.edit().putInt("current_channel", currentChannel).apply();
                 AppLog.add("MainActivity: UP, канал " + old + " → " + currentChannel + " (recreateSocket)");
@@ -375,6 +377,8 @@ public class MainActivity extends AppCompatActivity {
             if (currentChannel > 0) {
                 int old = currentChannel;
                 currentChannel--;
+                lastUserCount = -1;
+                if (tvActiveUsers != null) tvActiveUsers.setText("");
                 updateUI();
                 prefs.edit().putInt("current_channel", currentChannel).apply();
                 AppLog.add("MainActivity: DOWN, канал " + old + " → " + currentChannel + " (recreateSocket)");
@@ -617,6 +621,8 @@ public class MainActivity extends AppCompatActivity {
         int prd = prefs.getInt("preset_port_prd_" + presetNum, prefs.getInt("PORT_prd", 15000));
 
         currentChannel = channel;
+        lastUserCount = -1;
+        if (tvActiveUsers != null) tvActiveUsers.setText("");
 
         prefs.edit()
             .putInt("current_channel", channel)
