@@ -14,7 +14,11 @@ import android.widget.Toast;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
+
+import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 
 public class SettingsActivity extends AppCompatActivity {
 
@@ -59,7 +63,7 @@ public class SettingsActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_settings);
-        AppLog.add("SettingsActivity: onCreate (V10.5)");
+        AppLog.add("SettingsActivity: onCreate (V10.6)");
 
         prefs = getSharedPreferences("pmr_prefs", MODE_PRIVATE);
 
@@ -204,6 +208,43 @@ public class SettingsActivity extends AppCompatActivity {
         }
 
         findViewById(R.id.btnSaveSettings).setOnClickListener(v -> saveSettings());
+
+        // V10.6: новые кнопки справочной информации
+        Button btnShareProgram = findViewById(R.id.btnShareProgram);
+        Button btnShowDescription = findViewById(R.id.btnShowDescription);
+
+        if (btnShareProgram != null) {
+            btnShareProgram.setOnClickListener(v -> {
+                String url = "https://www.cqham.ru/forum/showthread.php/41895-Хочу-поделиться-программой/page9";
+                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                try {
+                    startActivity(intent);
+                } catch (Exception e) {
+                    Toast.makeText(this, "Не удалось открыть ссылку", Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
+
+        if (btnShowDescription != null) {
+            btnShowDescription.setOnClickListener(v -> {
+                StringBuilder sb = new StringBuilder();
+                try (InputStream is = getAssets().open("opisanie.txt");
+                     BufferedReader br = new BufferedReader(new InputStreamReader(is))) {
+                    String line;
+                    while ((line = br.readLine()) != null) {
+                        sb.append(line).append("\n");
+                    }
+                } catch (IOException e) {
+                    sb.append("Ошибка чтения файла opisanie.txt");
+                }
+
+                new AlertDialog.Builder(this)
+                        .setTitle("Описание работы программы")
+                        .setMessage(sb.toString())
+                        .setPositiveButton("Закрыть", null)
+                        .show();
+            });
+        }
     }
 
     private void showCodecDialog() {

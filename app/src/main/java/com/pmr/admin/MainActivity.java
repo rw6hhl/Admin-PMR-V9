@@ -329,8 +329,8 @@ public class MainActivity extends AppCompatActivity {
 
         btnMenu.setOnClickListener(v -> {
             beep();
-            AppLog.add("MainActivity: нажата MENU → диалог");
-            showMenuDialog();
+            AppLog.add("MainActivity: нажата MENU → SettingsActivity");
+            startActivity(new Intent(this, SettingsActivity.class));
         });
 
         btnCallOrList.setOnClickListener(v -> {
@@ -489,21 +489,6 @@ public class MainActivity extends AppCompatActivity {
             }
             return false;
         });
-    }
-
-    private void showMenuDialog() {
-        String[] items = {"Настройки", "СПРАВОЧНАЯ ИНФОРМАЦИЯ"};
-        new AlertDialog.Builder(this)
-                .setTitle("Меню")
-                .setItems(items, (dialog, which) -> {
-                    if (which == 0) {
-                        startActivity(new Intent(this, SettingsActivity.class));
-                    } else if (which == 1) {
-                        startActivity(new Intent(this, InfoActivity.class));
-                    }
-                })
-                .setNegativeButton("Отмена", null)
-                .show();
     }
 
     private void cancelTapWaiting() {
