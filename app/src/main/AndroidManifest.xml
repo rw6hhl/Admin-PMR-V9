@@ -35,6 +35,9 @@
         <activity android:name=".LogActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
+        <activity android:name=".InfoActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
 
         <service android:name=".PmrService" android:foregroundServiceType="microphone" />
 

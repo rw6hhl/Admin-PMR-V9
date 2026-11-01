@@ -34,7 +34,7 @@ import androidx.core.content.ContextCompat;
 public class MainActivity extends AppCompatActivity {
     private static final int REQ_MIC = 101;
     private static final int PTT_LATCH_BLINK_PERIOD_MS = 500;
-    private static final int PTT_TAP_MAX_MS = 300;
+    private static final int PTT_TAP_MAX_MS = 150;
     private static final int PTT_DOUBLE_TAP_TIMEOUT_MS = 300;
     private static final String ADMIN_PASSWORD = "r0st0v";
 
@@ -329,8 +329,8 @@ public class MainActivity extends AppCompatActivity {
 
         btnMenu.setOnClickListener(v -> {
             beep();
-            AppLog.add("MainActivity: нажата MENU → SettingsActivity");
-            startActivity(new Intent(this, SettingsActivity.class));
+            AppLog.add("MainActivity: нажата MENU → диалог");
+            showMenuDialog();
         });
 
         btnCallOrList.setOnClickListener(v -> {
@@ -489,6 +489,21 @@ public class MainActivity extends AppCompatActivity {
             }
             return false;
         });
+    }
+
+    private void showMenuDialog() {
+        String[] items = {"Настройки", "СПРАВОЧНАЯ ИНФОРМАЦИЯ"};
+        new AlertDialog.Builder(this)
+                .setTitle("Меню")
+                .setItems(items, (dialog, which) -> {
+                    if (which == 0) {
+                        startActivity(new Intent(this, SettingsActivity.class));
+                    } else if (which == 1) {
+                        startActivity(new Intent(this, InfoActivity.class));
+                    }
+                })
+                .setNegativeButton("Отмена", null)
+                .show();
     }
 
     private void cancelTapWaiting() {

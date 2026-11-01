@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp"
+    android:background="@color/colorback">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="СПРАВОЧНАЯ ИНФОРМАЦИЯ"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:textColor="@color/colorButton"
+        android:gravity="center"
+        android:layout_marginBottom="24dp" />
+
+    <Button
+        android:id="@+id/btnShareProgram"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Хочу поделиться программой"
+        android:background="@drawable/roundshapebtn"
+        android:textColor="@color/colorButton"
+        android:layout_marginBottom="16dp" />
+
+    <Button
+        android:id="@+id/btnShowDescription"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Описание работы программы"
+        android:background="@drawable/roundshapebtn"
+        android:textColor="@color/colorButton" />
+
+</LinearLayout>
