@@ -15,10 +15,15 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 
+import org.json.JSONObject;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.Iterator;
 
 public class SettingsActivity extends AppCompatActivity {
 
@@ -29,33 +34,87 @@ public class SettingsActivity extends AppCompatActivity {
     private LinearLayout layoutServerSettings, layoutParamsSettings;
     private Button btnChanList, btnLogs, btnLoadList;
     private CheckBox cbVerboseLog, cbSoundEnabled, cbAskPassword, cbPttLatch, cbShowListNames;
-    private CheckBox cbSimplex, cbShowPowerButton, cbShowServerIp; // V11.0
+    private CheckBox cbSimplex, cbShowPowerButton, cbShowServerIp;
 
     private final ActivityResultLauncher<String[]> openListLauncher =
             registerForActivityResult(new ActivityResultContracts.OpenDocument(), uri -> {
-                if (uri == null) {
-                    AppLog.add("SettingsActivity: list.txt — файл не выбран");
-                    Toast.makeText(this, "Файл не выбран", Toast.LENGTH_SHORT).show();
-                    return;
-                }
+                if (uri == null) return;
                 try {
                     InputStream is = getContentResolver().openInputStream(uri);
-                    if (is == null) {
-                        AppLog.add("SettingsActivity: list.txt — openInputStream вернул null");
-                        Toast.makeText(this, "Не удалось открыть файл", Toast.LENGTH_SHORT).show();
-                        return;
-                    }
+                    if (is == null) return;
                     int count = NameBook.importFromStream(this, is);
                     is.close();
-                    AppLog.add("SettingsActivity: list.txt — uri=" + uri + ", загружено имён=" + count);
-                    if (count == 0) {
-                        Toast.makeText(this, "Файл пуст или неверный формат", Toast.LENGTH_LONG).show();
-                    } else {
-                        Toast.makeText(this, "Загружено имён: " + count, Toast.LENGTH_LONG).show();
-                    }
+                    Toast.makeText(this, "Загружено имён: " + count, Toast.LENGTH_LONG).show();
                 } catch (Exception e) {
                     Toast.makeText(this, "Ошибка: " + e.getMessage(), Toast.LENGTH_LONG).show();
-                    AppLog.add("NameBook: ошибка загрузки list.txt — " + e.getMessage());
+                }
+            });
+
+    // V11.1: Экспорт параметров ячеек
+    private final ActivityResultLauncher<String> exportPresetsLauncher =
+            registerForActivityResult(new ActivityResultContracts.CreateDocument("text/plain"), uri -> {
+                if (uri == null) return;
+                try {
+                    JSONObject json = new JSONObject();
+                    for (int i = 1; i <= 5; i++) {
+                        if (prefs.contains("preset_ip_" + i)) {
+                            JSONObject preset = new JSONObject();
+                            preset.put("channel", prefs.getInt("preset_channel_" + i, 0));
+                            preset.put("index", prefs.getString("preset_index_" + i, ""));
+                            preset.put("priznak", prefs.getString("preset_priznak_" + i, ""));
+                            preset.put("ip", prefs.getString("preset_ip_" + i, ""));
+                            preset.put("port_prm", prefs.getInt("preset_port_prm_" + i, 0));
+                            preset.put("port_prd", prefs.getInt("preset_port_prd_" + i, 0));
+                            json.put(String.valueOf(i), preset);
+                        }
+                    }
+                    String data = json.toString(2);
+                    try (OutputStream os = getContentResolver().openOutputStream(uri)) {
+                        if (os != null) {
+                            os.write(data.getBytes(StandardCharsets.UTF_8));
+                            os.flush();
+                        }
+                    }
+                    Toast.makeText(this, "Ячейки сохранены в файл", Toast.LENGTH_SHORT).show();
+                    AppLog.add("SettingsActivity: Экспорт ячеек успешен — " + uri);
+                } catch (Exception e) {
+                    Toast.makeText(this, "Ошибка сохранения: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                    AppLog.add("SettingsActivity: Ошибка экспорта ячеек — " + e.getMessage());
+                }
+            });
+
+    // V11.1: Импорт параметров ячеек
+    private final ActivityResultLauncher<String[]> importPresetsLauncher =
+            registerForActivityResult(new ActivityResultContracts.OpenDocument(), uri -> {
+                if (uri == null) return;
+                try {
+                    StringBuilder sb = new StringBuilder();
+                    try (InputStream is = getContentResolver().openInputStream(uri);
+                         BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
+                        String line;
+                        while ((line = reader.readLine()) != null) sb.append(line);
+                    }
+                    JSONObject json = new JSONObject(sb.toString());
+                    SharedPreferences.Editor editor = prefs.edit();
+                    Iterator<String> keys = json.keys();
+                    int count = 0;
+                    while (keys.hasNext()) {
+                        String key = keys.next(); // "1".."5"
+                        JSONObject preset = json.getJSONObject(key);
+                        editor.putInt("preset_channel_" + key, preset.optInt("channel"));
+                        editor.putString("preset_index_" + key, preset.optString("index"));
+                        editor.putString("preset_priznak_" + key, preset.optString("priznak"));
+                        editor.putString("preset_ip_" + key, preset.optString("ip"));
+                        editor.putInt("preset_port_prm_" + key, preset.optInt("port_prm"));
+                        editor.putInt("preset_port_prd_" + key, preset.optInt("port_prd"));
+                        count++;
+                    }
+                    editor.apply();
+                    Toast.makeText(this, "Загружено ячеек: " + count, Toast.LENGTH_SHORT).show();
+                    AppLog.add("SettingsActivity: Импорт ячеек успешен — " + count);
+                } catch (Exception e) {
+                    Toast.makeText(this, "Ошибка загрузки: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                    AppLog.add("SettingsActivity: Ошибка импорта ячеек — " + e.getMessage());
                 }
             });
 
@@ -63,7 +122,7 @@ public class SettingsActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_settings);
-        AppLog.add("SettingsActivity: onCreate (V11.0)");
+        AppLog.add("SettingsActivity: onCreate (V11.1)");
 
         prefs = getSharedPreferences("pmr_prefs", MODE_PRIVATE);
 
@@ -84,7 +143,7 @@ public class SettingsActivity extends AppCompatActivity {
         cbShowListNames = findViewById(R.id.cbShowListNames);
         cbSimplex = findViewById(R.id.cbSimplex);
         cbShowPowerButton = findViewById(R.id.cbShowPowerButton);
-        cbShowServerIp = findViewById(R.id.cbShowServerIp); // V11.0
+        cbShowServerIp = findViewById(R.id.cbShowServerIp);
 
         cbUsilMic = findViewById(R.id.cbUsilMic);
         editUsilMic = findViewById(R.id.editUsilMic);
@@ -92,7 +151,6 @@ public class SettingsActivity extends AppCompatActivity {
         cbUsilDin = findViewById(R.id.cbUsilDin);
         editUsilDin = findViewById(R.id.editUsilDin);
 
-        // V10.5: дефолты обновлены (PORT_prd=15000, ip=109.172.7.155)
         editMailIndex.setText(prefs.getString("MyMailIndex", "111111"));
         editPriznak.setText(prefs.getString("Priznak_pmr", "22222"));
         editPortPrm.setText(String.valueOf(prefs.getInt("PORT_prm", 5253)));
@@ -101,9 +159,7 @@ public class SettingsActivity extends AppCompatActivity {
 
         cbUsilMic.setChecked(prefs.getBoolean("onUsilMic", false));
         editUsilMic.setText(String.valueOf(prefs.getFloat("MicUsildouble", 5.0f)));
-
         cbAgc.setChecked(prefs.getBoolean("onAgc", false));
-
         cbUsilDin.setChecked(prefs.getBoolean("onUsilDin", false));
         editUsilDin.setText(String.valueOf(prefs.getFloat("DinUsildouble", 5.0f)));
 
@@ -111,69 +167,52 @@ public class SettingsActivity extends AppCompatActivity {
             cbPttLatch.setChecked(prefs.getBoolean("ptt_latch_enabled", false));
             cbPttLatch.setOnCheckedChangeListener((b, checked) -> {
                 prefs.edit().putBoolean("ptt_latch_enabled", checked).apply();
-                AppLog.add("SettingsActivity: ptt_latch_enabled=" + checked);
             });
         }
-
         if (cbShowListNames != null) {
             cbShowListNames.setChecked(prefs.getBoolean("show_list_names", false));
             cbShowListNames.setOnCheckedChangeListener((b, checked) -> {
                 prefs.edit().putBoolean("show_list_names", checked).apply();
-                AppLog.add("SettingsActivity: show_list_names=" + checked);
             });
         }
-
         if (cbAskPassword != null) {
             cbAskPassword.setChecked(prefs.getBoolean("ask_password", false));
             cbAskPassword.setOnCheckedChangeListener((b, checked) -> {
                 prefs.edit().putBoolean("ask_password", checked).apply();
-                AppLog.add("SettingsActivity: ask_password=" + checked);
             });
         }
-
         if (cbSimplex != null) {
             cbSimplex.setChecked(prefs.getBoolean("simplex", false));
             cbSimplex.setOnCheckedChangeListener((b, checked) -> {
                 prefs.edit().putBoolean("simplex", checked).apply();
-                AppLog.add("SettingsActivity: simplex=" + checked);
             });
         }
-
         if (cbShowPowerButton != null) {
             cbShowPowerButton.setChecked(prefs.getBoolean("show_power_button", false));
             cbShowPowerButton.setOnCheckedChangeListener((b, checked) -> {
                 prefs.edit().putBoolean("show_power_button", checked).apply();
-                AppLog.add("SettingsActivity: show_power_button=" + checked);
             });
         }
-
-        // V11.0: показ IP сервера
         if (cbShowServerIp != null) {
             cbShowServerIp.setChecked(prefs.getBoolean("show_server_ip", false));
             cbShowServerIp.setOnCheckedChangeListener((b, checked) -> {
                 prefs.edit().putBoolean("show_server_ip", checked).apply();
-                AppLog.add("SettingsActivity: show_server_ip=" + checked);
             });
         }
-
         if (cbVerboseLog != null) {
             cbVerboseLog.setChecked(prefs.getBoolean("verbose_log", false));
             cbVerboseLog.setOnCheckedChangeListener((b, checked) -> {
                 prefs.edit().putBoolean("verbose_log", checked).apply();
                 AppLog.setVerbose(checked);
-                AppLog.add("SettingsActivity: verbose_log=" + checked);
             });
         }
-
         if (cbSoundEnabled != null) {
             cbSoundEnabled.setChecked(prefs.getBoolean("sound_enabled", false));
             cbSoundEnabled.setOnCheckedChangeListener((b, checked) -> {
                 prefs.edit().putBoolean("sound_enabled", checked).apply();
-                AppLog.add("SettingsActivity: sound_enabled=" + checked);
             });
         }
 
-        // V10.5: видимость — cbAskPassword и cbVerboseLog только в админке
         boolean isAdmin = prefs.getBoolean("is_admin_mode", false);
         if (isAdmin) {
             btnChanList.setVisibility(View.VISIBLE);
@@ -199,11 +238,8 @@ public class SettingsActivity extends AppCompatActivity {
 
         btnChanList.setOnClickListener(v -> {
             try {
-                AppLog.add("SettingsActivity: нажата «Список» → ChanListActivity");
                 startActivity(new Intent(this, ChanListActivity.class));
-            } catch (Exception e) {
-                AppLog.add("SettingsActivity: ОШИБКА startActivity(ChanListActivity) — " + e.getMessage());
-            }
+            } catch (Exception ignored) {}
         });
         btnLogs.setOnClickListener(v -> startActivity(new Intent(this, LogActivity.class)));
 
@@ -219,7 +255,6 @@ public class SettingsActivity extends AppCompatActivity {
 
         findViewById(R.id.btnSaveSettings).setOnClickListener(v -> saveSettings());
 
-        // V10.6: новые кнопки справочной информации
         Button btnShareProgram = findViewById(R.id.btnShareProgram);
         Button btnShowDescription = findViewById(R.id.btnShowDescription);
 
@@ -241,18 +276,39 @@ public class SettingsActivity extends AppCompatActivity {
                 try (InputStream is = getAssets().open("opisanie.txt");
                      BufferedReader br = new BufferedReader(new InputStreamReader(is))) {
                     String line;
-                    while ((line = br.readLine()) != null) {
-                        sb.append(line).append("\n");
-                    }
+                    while ((line = br.readLine()) != null) sb.append(line).append("\n");
                 } catch (IOException e) {
                     sb.append("Ошибка чтения файла opisanie.txt");
                 }
-
                 new AlertDialog.Builder(this)
                         .setTitle("Описание работы программы")
                         .setMessage(sb.toString())
                         .setPositiveButton("Закрыть", null)
                         .show();
+            });
+        }
+
+        // V11.1: Экспорт ячеек
+        Button btnExport = findViewById(R.id.btnExportPresets);
+        if (btnExport != null) {
+            btnExport.setOnClickListener(v -> {
+                try {
+                    exportPresetsLauncher.launch("presets_backup.txt");
+                } catch (Exception e) {
+                    Toast.makeText(this, "Нет файлового менеджера", Toast.LENGTH_LONG).show();
+                }
+            });
+        }
+
+        // V11.1: Импорт ячеек
+        Button btnImport = findViewById(R.id.btnImportPresets);
+        if (btnImport != null) {
+            btnImport.setOnClickListener(v -> {
+                try {
+                    importPresetsLauncher.launch(new String[]{"text/plain", "*/*"});
+                } catch (Exception e) {
+                    Toast.makeText(this, "Нет файлового менеджера", Toast.LENGTH_LONG).show();
+                }
             });
         }
     }
@@ -297,9 +353,7 @@ public class SettingsActivity extends AppCompatActivity {
                 + ", agc=" + cbAgc.isChecked()
                 + ", din=" + cbUsilDin.isChecked() + "/" + editUsilDin.getText()
                 + ", ptt_latch=" + (cbPttLatch != null ? cbPttLatch.isChecked() : "n/a")
-                + ", show_list=" + (cbShowListNames != null ? cbShowListNames.isChecked() : "n/a")
                 + ", simplex=" + (cbSimplex != null ? cbSimplex.isChecked() : "n/a")
-                + ", show_power=" + (cbShowPowerButton != null ? cbShowPowerButton.isChecked() : "n/a")
                 + ", show_server_ip=" + (cbShowServerIp != null ? cbShowServerIp.isChecked() : "n/a"));
 
         if (PmrService.pmrSocket != null) {
@@ -307,9 +361,7 @@ public class SettingsActivity extends AppCompatActivity {
             if (PmrService.audioEngine != null) {
                 PmrService.audioEngine.applyGain();
             }
-            AppLog.add("SettingsActivity: настройки применены в работе (recreateSocket + applyGain)");
         }
-
         finish();
     }
 }

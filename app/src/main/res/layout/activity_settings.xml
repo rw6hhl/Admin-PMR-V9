@@ -364,6 +364,25 @@
             android:text="Описание работы программы"
             android:textColor="@color/colorButton" />
 
+        <!-- V11.1: Экспорт/Импорт настроек ячеек -->
+        <Button
+            android:id="@+id/btnExportPresets"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:background="@drawable/roundshapebtn"
+            android:text="СОХРАНИТЬ ПАРАМЕТРЫ ЯЧЕЕК"
+            android:textColor="@color/colorButton" />
+
+        <Button
+            android:id="@+id/btnImportPresets"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:background="@drawable/roundshapebtn"
+            android:text="ЗАГРУЗИТЬ ПАРАМЕТРЫ ЯЧЕЕК"
+            android:textColor="@color/colorButton" />
+
         <Button
             android:id="@+id/btnSaveSettings"
             android:layout_width="match_parent"
