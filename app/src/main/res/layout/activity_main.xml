@@ -19,27 +19,27 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
         android:layout_marginEnd="16dp"
-        android:text="v11.2"
+        android:text="v11.3"
         android:textColor="@color/colorButton"
         android:textSize="14sp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
-    <!-- V11.2: IP-строка привязана к верху экрана и имеет жесткий отступ (115dp), чтобы попасть в серую полосу -->
+    <!-- V11.3: Привязка низа строки к верху цифры канала с отрицательным отступом, чтобы лечь в серую полосу -->
     <TextView
         android:id="@+id/tvServerIp"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginTop="115dp"
+        android:layout_marginBottom="32dp"
         android:background="#727d73"
         android:gravity="center"
         android:padding="1dp"
         android:textColor="#FFFF00"
         android:textSize="14sp"
         android:visibility="gone"
+        app:layout_constraintBottom_toTopOf="@+id/textView"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintWidth_percent="0.8" />
 
     <TextView
