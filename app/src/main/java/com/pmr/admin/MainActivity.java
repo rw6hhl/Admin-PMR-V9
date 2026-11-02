@@ -9,6 +9,7 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.media.AudioManager;
 import android.media.ToneGenerator;
 import android.os.Bundle;
@@ -38,6 +39,11 @@ public class MainActivity extends AppCompatActivity {
     private static final int PTT_DOUBLE_TAP_TIMEOUT_MS = 300;
     private static final String ADMIN_PASSWORD = "r0st0v";
 
+    // V10.9: цвет подсветки активной ячейки (Вариант D — рамка + bold)
+    private static final int PRESET_HIGHLIGHT_COLOR = 0xFFFF9800; // оранжевый #FF9800
+    private static final float PRESET_CORNER_RADIUS_DP = 8f;
+    private static final float PRESET_STROKE_WIDTH_DP = 2.5f;
+
     private SharedPreferences prefs;
     private TextView tvChannel, tvIndex, tvSpeakingId, tvVersion, tvActiveUsers;
     private ImageView imgRed, imgGreen, btnPower;
@@ -59,6 +65,10 @@ public class MainActivity extends AppCompatActivity {
 
     private int lastUserCount = -1;
     private boolean showListNames = false;
+
+    // V10.9: активная ячейка (0 = никакая) и массив кнопок пресетов
+    private int activePreset = 0;
+    private Button[] presetButtons;
 
     private final Handler speakingHandler = new Handler(Looper.getMainLooper());
     private final Runnable resetSpeakingId = () -> {
@@ -211,6 +221,7 @@ public class MainActivity extends AppCompatActivity {
         AppLog.add("MainActivity: currentChannel=" + currentChannel + ", isAdminMode=" + isAdminMode);
 
         initViews();
+        resetPresetHighlight(); // V10.9: при старте никакая ячейка не подсвечена
         setupListeners();
         updateUI();
         updatePowerButton();
@@ -278,7 +289,11 @@ public class MainActivity extends AppCompatActivity {
         btnSave5 = findViewById(R.id.buttonsave5);
         btnPTT = findViewById(R.id.btnPTT);
         btnSecretMode = findViewById(R.id.btnSecretMode);
-        AppLog.add("MainActivity: initViews — найдены кнопки и TextView (btnPower есть)");
+
+        // V10.9: массив кнопок пресетов
+        presetButtons = new Button[]{btnSave1, btnSave2, btnSave3, btnSave4, btnSave5};
+
+        AppLog.add("MainActivity: initViews — найдены кнопки и TextView (btnPower есть), presetButtons.length=" + presetButtons.length);
     }
 
     private void setupListeners() {
@@ -587,32 +602,41 @@ public class MainActivity extends AppCompatActivity {
         tvActiveUsers.setText(String.valueOf(count));
     }
 
+    // V10.9: сохранение пресета — Toast в формате "Ячейка N: ip:port / index"
     private void savePreset(int presetNum) {
+        String ip = prefs.getString("ip_server", "109.172.7.155");
+        int prm = prefs.getInt("PORT_prm", 5253);
+        int prd = prefs.getInt("PORT_prd", 15000);
+        String index = prefs.getString("MyMailIndex", "111111");
+        String priznak = prefs.getString("Priznak_pmr", "22222");
+
         SharedPreferences.Editor editor = prefs.edit();
         editor.putInt("preset_channel_" + presetNum, currentChannel);
-        editor.putString("preset_index_" + presetNum, prefs.getString("MyMailIndex", "111111"));
-        editor.putString("preset_priznak_" + presetNum, prefs.getString("Priznak_pmr", "22222"));
-        editor.putString("preset_ip_" + presetNum, prefs.getString("ip_server", "109.172.7.155"));
-        editor.putInt("preset_port_prm_" + presetNum, prefs.getInt("PORT_prm", 5253));
-        editor.putInt("preset_port_prd_" + presetNum, prefs.getInt("PORT_prd", 15000));
+        editor.putString("preset_index_" + presetNum, index);
+        editor.putString("preset_priznak_" + presetNum, priznak);
+        editor.putString("preset_ip_" + presetNum, ip);
+        editor.putInt("preset_port_prm_" + presetNum, prm);
+        editor.putInt("preset_port_prd_" + presetNum, prd);
         editor.apply();
 
-        String info = "Сохранено в ячейку " + presetNum + ":\n" +
-                "Канал: " + currentChannel + "\n" +
-                "Индекс: " + prefs.getString("MyMailIndex", "") + "\n" +
-                "Признак: " + prefs.getString("Priznak_pmr", "") + "\n" +
-                "PORT_prm: " + prefs.getInt("PORT_prm", 5253) + "\n" +
-                "PORT_prd: " + prefs.getInt("PORT_prd", 15000) + "\n" +
-                "IP: " + prefs.getString("ip_server", "");
         AppLog.add("MainActivity: savePreset(" + presetNum + ") — channel=" + currentChannel
-                + ", index=" + prefs.getString("MyMailIndex", "")
-                + ", priznak=" + prefs.getString("Priznak_pmr", "")
-                + ", PORT_prm=" + prefs.getInt("PORT_prm", 5253)
-                + ", PORT_prd=" + prefs.getInt("PORT_prd", 15000));
+                + ", index=" + index + ", priznak=" + priznak
+                + ", PORT_prm=" + prm + ", PORT_prd=" + prd + ", ip=" + ip);
+
+        // V10.9: одна строка, читаемо, помещается в Toast
+        String info = "Ячейка " + presetNum + ": " + ip + ":" + prm + " / " + index;
         Toast.makeText(this, info, Toast.LENGTH_LONG).show();
     }
 
+    // V10.9: загрузка пресета — проверка пустой ячейки, применение, подсветка
     private void loadPreset(int presetNum) {
+        // V10.9: пустая ячейка — ничего не грузим
+        if (!prefs.contains("preset_ip_" + presetNum)) {
+            AppLog.add("MainActivity: loadPreset(" + presetNum + ") — ячейка пуста");
+            Toast.makeText(this, "Ячейка " + presetNum + " пуста", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
         int channel = prefs.getInt("preset_channel_" + presetNum, currentChannel);
         String index = prefs.getString("preset_index_" + presetNum, prefs.getString("MyMailIndex", "111111"));
         String priznak = prefs.getString("preset_priznak_" + presetNum, prefs.getString("Priznak_pmr", "22222"));
@@ -646,14 +670,56 @@ public class MainActivity extends AppCompatActivity {
 
         updateUI();
 
-        String info = "Загружено из ячейки " + presetNum + ":\n" +
-                "Канал: " + channel + "\n" +
-                "Индекс: " + index + "\n" +
-                "Признак: " + priznak + "\n" +
-                "PORT_prm: " + prm + "\n" +
-                "PORT_prd: " + prd + "\n" +
-                "IP: " + ip;
+        // V10.9: подсветка активной ячейки
+        highlightPreset(presetNum);
+
+        // V10.9: Toast одной строкой
+        String info = "Загружено из ячейки " + presetNum + ": " + ip + ":" + prm + " / " + index;
         Toast.makeText(this, info, Toast.LENGTH_LONG).show();
+    }
+
+    // V10.9: подсветка активной ячейки — снять с предыдущей, поставить на новую
+    private void highlightPreset(int presetNum) {
+        if (presetButtons == null) return;
+        if (presetNum < 1 || presetNum > presetButtons.length) return;
+        // снять с предыдущей
+        if (activePreset >= 1 && activePreset <= presetButtons.length) {
+            applyPresetHighlight(presetButtons[activePreset - 1], false);
+        }
+        // поставить на новую
+        applyPresetHighlight(presetButtons[presetNum - 1], true);
+        activePreset = presetNum;
+        AppLog.add("MainActivity: highlightPreset(" + presetNum + ") — активная ячейка " + presetNum);
+    }
+
+    // V10.9: сброс подсветки со всех ячеек (например, при старте Activity)
+    private void resetPresetHighlight() {
+        if (presetButtons == null) return;
+        for (int i = 0; i < presetButtons.length; i++) {
+            applyPresetHighlight(presetButtons[i], false);
+        }
+        activePreset = 0;
+        AppLog.add("MainActivity: resetPresetHighlight — все ячейки без подсветки");
+    }
+
+    // V10.9: применить/снять подсветку кнопки.
+    // Подсветка = рамка #FF9800 (2.5dp) + Typeface.BOLD. При снятии — возвращаем roundshapebtn.
+    private void applyPresetHighlight(Button btn, boolean highlighted) {
+        if (btn == null) return;
+        if (highlighted) {
+            GradientDrawable gd = new GradientDrawable();
+            gd.setShape(GradientDrawable.RECTANGLE);
+            gd.setColor(Color.TRANSPARENT);
+            float r = PRESET_CORNER_RADIUS_DP * getResources().getDisplayMetrics().density;
+            gd.setCornerRadius(r);
+            float sw = PRESET_STROKE_WIDTH_DP * getResources().getDisplayMetrics().density;
+            gd.setStroke((int) sw, PRESET_HIGHLIGHT_COLOR);
+            btn.setBackground(gd);
+            btn.setTypeface(null, Typeface.BOLD);
+        } else {
+            btn.setBackgroundResource(R.drawable.roundshapebtn);
+            btn.setTypeface(null, Typeface.NORMAL);
+        }
     }
 
     private void updateUI() {
