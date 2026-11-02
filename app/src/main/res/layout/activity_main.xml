@@ -19,13 +19,13 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
         android:layout_marginEnd="16dp"
-        android:text="v11.1"
+        android:text="v11.2"
         android:textColor="@color/colorButton"
         android:textSize="14sp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
-    <!-- V11.1: TextView для IP сервера (поднят выше, цвет фона под корпус) -->
+    <!-- V11.2: TextView для IP сервера (опущен ниже, на серую панель) -->
     <TextView
         android:id="@+id/tvServerIp"
         android:layout_width="0dp"
@@ -40,7 +40,7 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintVertical_bias="0.22"
+        app:layout_constraintVertical_bias="0.16"
         app:layout_constraintWidth_percent="0.8" />
 
     <TextView
