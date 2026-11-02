@@ -46,6 +46,7 @@ public class MainActivity extends AppCompatActivity {
 
     private SharedPreferences prefs;
     private TextView tvChannel, tvIndex, tvSpeakingId, tvVersion, tvActiveUsers;
+    private TextView tvServerIp; // V11.0
     private ImageView imgRed, imgGreen, btnPower;
     private Button btnMenu, btnUp, btnDown, btnSave1, btnSave2, btnSave3, btnSave4, btnSave5, btnCallOrList, btnPTT, btnSecretMode;
     private boolean isAdminMode = false;
@@ -224,6 +225,7 @@ public class MainActivity extends AppCompatActivity {
         resetPresetHighlight(); // V10.9: при старте никакая ячейка не подсвечена
         setupListeners();
         updateUI();
+        updateServerIpVisibility(); // V11.0
         updatePowerButton();
 
         // V10.5: автозапуск сервиса при старте приложения
@@ -273,6 +275,7 @@ public class MainActivity extends AppCompatActivity {
         tvSpeakingId = findViewById(R.id.tvSpeakingId);
         tvVersion = findViewById(R.id.tvVersion);
         tvActiveUsers = findViewById(R.id.textView6);
+        tvServerIp = findViewById(R.id.tvServerIp); // V11.0
 
         imgRed = findViewById(R.id.imageView);
         imgGreen = findViewById(R.id.imageView2);
@@ -602,6 +605,21 @@ public class MainActivity extends AppCompatActivity {
         tvActiveUsers.setText(String.valueOf(count));
     }
 
+    // V11.0: обновление видимости и текста IP сервера
+    private void updateServerIpVisibility() {
+        if (tvServerIp == null) return;
+        boolean show = prefs.getBoolean("show_server_ip", false);
+        if (show) {
+            String ip = prefs.getString("ip_server", "109.172.7.155");
+            tvServerIp.setText(ip);
+            tvServerIp.setVisibility(View.VISIBLE);
+            AppLog.add("MainActivity: updateServerIpVisibility → показ IP: " + ip);
+        } else {
+            tvServerIp.setVisibility(View.GONE);
+            AppLog.add("MainActivity: updateServerIpVisibility → IP скрыт (show_server_ip=false)");
+        }
+    }
+
     // V10.9: сохранение пресета — Toast в формате "Ячейка N: ip:port / index"
     private void savePreset(int presetNum) {
         String ip = prefs.getString("ip_server", "109.172.7.155");
@@ -669,6 +687,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         updateUI();
+        updateServerIpVisibility(); // V11.0: обновить IP, если показывается
 
         // V10.9: подсветка активной ячейки
         highlightPreset(presetNum);
@@ -748,8 +767,10 @@ public class MainActivity extends AppCompatActivity {
                 + ", currentChannel=" + currentChannel
                 + ", ptt_latch_enabled=" + pttLatchEnabled
                 + ", show_list_names=" + showListNames
-                + ", show_power_button=" + prefs.getBoolean("show_power_button", false));
+                + ", show_power_button=" + prefs.getBoolean("show_power_button", false)
+                + ", show_server_ip=" + prefs.getBoolean("show_server_ip", false));
         updateUI();
+        updateServerIpVisibility(); // V11.0
         updatePowerButton();
         registerReceiver(voiceReceiver, new IntentFilter("PMR_VOICE_RECEIVED"));
         registerReceiver(usersReceiver, new IntentFilter("PMR_USERS_CHANGED"));

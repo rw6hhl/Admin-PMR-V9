@@ -29,7 +29,7 @@ public class SettingsActivity extends AppCompatActivity {
     private LinearLayout layoutServerSettings, layoutParamsSettings;
     private Button btnChanList, btnLogs, btnLoadList;
     private CheckBox cbVerboseLog, cbSoundEnabled, cbAskPassword, cbPttLatch, cbShowListNames;
-    private CheckBox cbSimplex, cbShowPowerButton;
+    private CheckBox cbSimplex, cbShowPowerButton, cbShowServerIp; // V11.0
 
     private final ActivityResultLauncher<String[]> openListLauncher =
             registerForActivityResult(new ActivityResultContracts.OpenDocument(), uri -> {
@@ -63,7 +63,7 @@ public class SettingsActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_settings);
-        AppLog.add("SettingsActivity: onCreate (V10.6)");
+        AppLog.add("SettingsActivity: onCreate (V11.0)");
 
         prefs = getSharedPreferences("pmr_prefs", MODE_PRIVATE);
 
@@ -84,6 +84,7 @@ public class SettingsActivity extends AppCompatActivity {
         cbShowListNames = findViewById(R.id.cbShowListNames);
         cbSimplex = findViewById(R.id.cbSimplex);
         cbShowPowerButton = findViewById(R.id.cbShowPowerButton);
+        cbShowServerIp = findViewById(R.id.cbShowServerIp); // V11.0
 
         cbUsilMic = findViewById(R.id.cbUsilMic);
         editUsilMic = findViewById(R.id.editUsilMic);
@@ -143,6 +144,15 @@ public class SettingsActivity extends AppCompatActivity {
             cbShowPowerButton.setOnCheckedChangeListener((b, checked) -> {
                 prefs.edit().putBoolean("show_power_button", checked).apply();
                 AppLog.add("SettingsActivity: show_power_button=" + checked);
+            });
+        }
+
+        // V11.0: показ IP сервера
+        if (cbShowServerIp != null) {
+            cbShowServerIp.setChecked(prefs.getBoolean("show_server_ip", false));
+            cbShowServerIp.setOnCheckedChangeListener((b, checked) -> {
+                prefs.edit().putBoolean("show_server_ip", checked).apply();
+                AppLog.add("SettingsActivity: show_server_ip=" + checked);
             });
         }
 
@@ -289,7 +299,8 @@ public class SettingsActivity extends AppCompatActivity {
                 + ", ptt_latch=" + (cbPttLatch != null ? cbPttLatch.isChecked() : "n/a")
                 + ", show_list=" + (cbShowListNames != null ? cbShowListNames.isChecked() : "n/a")
                 + ", simplex=" + (cbSimplex != null ? cbSimplex.isChecked() : "n/a")
-                + ", show_power=" + (cbShowPowerButton != null ? cbShowPowerButton.isChecked() : "n/a"));
+                + ", show_power=" + (cbShowPowerButton != null ? cbShowPowerButton.isChecked() : "n/a")
+                + ", show_server_ip=" + (cbShowServerIp != null ? cbShowServerIp.isChecked() : "n/a"));
 
         if (PmrService.pmrSocket != null) {
             PmrService.pmrSocket.recreateSocket(this);
