@@ -25,14 +25,14 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
-    <!-- V11.2: TextView для IP сервера (опущен в обведенную область на экране) -->
+    <!-- V11.2: TextView для IP сервера (на серой панели над жёлтым экраном) -->
     <TextView
         android:id="@+id/tvServerIp"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:background="#727d73"
         android:gravity="center"
-        android:padding="2dp"
+        android:padding="1dp"
         android:textColor="#FFFF00"
         android:textSize="14sp"
         android:visibility="gone"
@@ -40,7 +40,7 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintVertical_bias="0.19"
+        app:layout_constraintVertical_bias="0.112"
         app:layout_constraintWidth_percent="0.8" />
 
     <TextView
