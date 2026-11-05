@@ -43,6 +43,9 @@ public class MainActivity extends AppCompatActivity {
     private static final float PRESET_CORNER_RADIUS_DP = 8f;
     private static final float PRESET_STROKE_WIDTH_DP = 2.5f;
 
+    // V11.8: Задержка сканирования уменьшена до 500 мс
+    private static final int SCAN_DELAY_MS = 500;
+
     private SharedPreferences prefs;
     private TextView tvChannel, tvIndex, tvSpeakingId, tvVersion, tvActiveUsers;
     private TextView tvServerIp;
@@ -69,7 +72,7 @@ public class MainActivity extends AppCompatActivity {
     private int activePreset = 0;
     private Button[] presetButtons;
 
-    // V11.7: Переменные сканирования
+    // V11.8: Переменные сканирования
     private boolean isScanning = false;
     private int scanMode = 0; // 0 = ячейки, 1 = каналы внутри ячейки
     private int scanIndex = 1;
@@ -331,7 +334,6 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        // V11.7: Кнопки UP/DOWN переключают режим сканирования
         btnUp.setOnClickListener(v -> {
             beep();
             if (isScanning) {
@@ -377,7 +379,7 @@ public class MainActivity extends AppCompatActivity {
                 case MotionEvent.ACTION_DOWN:
                     pttDownTime = System.currentTimeMillis();
                     pttHoldActive = false;
-                    if (isScanning) stopScanning(); // V11.7: Выключаем сканирование при PTT
+                    if (isScanning) stopScanning();
                     if (!PmrService.isRunning) {
                         Toast.makeText(this, "Включите программу", Toast.LENGTH_SHORT).show();
                         return true;
@@ -472,7 +474,7 @@ public class MainActivity extends AppCompatActivity {
                 }
                 scanIndex++;
                 if (scanIndex > 5) scanIndex = 1;
-                scanHandler.postDelayed(this, 2000);
+                scanHandler.postDelayed(this, SCAN_DELAY_MS);
             }
         };
         scanHandler.post(scanRunnable);
@@ -483,7 +485,6 @@ public class MainActivity extends AppCompatActivity {
         scanMode = 1;
         scanHandler.removeCallbacks(scanRunnable);
         
-        // Принудительно загружаем выбранную ячейку, чтобы взять оттуда настройки
         loadPreset(presetNum);
         scanIndex = currentChannel;
         
@@ -505,7 +506,7 @@ public class MainActivity extends AppCompatActivity {
                     PmrService.pmrSocket.recreateSocket(MainActivity.this);
                 }
                 
-                scanHandler.postDelayed(this, 2000);
+                scanHandler.postDelayed(this, SCAN_DELAY_MS);
             }
         };
         scanHandler.post(scanRunnable);
