@@ -39,14 +39,13 @@ public class MainActivity extends AppCompatActivity {
     private static final int PTT_DOUBLE_TAP_TIMEOUT_MS = 300;
     private static final String ADMIN_PASSWORD = "r0st0v";
 
-    // V10.9: цвет подсветки активной ячейки (Вариант D — рамка + bold)
-    private static final int PRESET_HIGHLIGHT_COLOR = 0xFFFF9800; // оранжевый #FF9800
+    private static final int PRESET_HIGHLIGHT_COLOR = 0xFFFF9800;
     private static final float PRESET_CORNER_RADIUS_DP = 8f;
     private static final float PRESET_STROKE_WIDTH_DP = 2.5f;
 
     private SharedPreferences prefs;
     private TextView tvChannel, tvIndex, tvSpeakingId, tvVersion, tvActiveUsers;
-    private TextView tvServerIp; // V11.0
+    private TextView tvServerIp;
     private ImageView imgRed, imgGreen, btnPower;
     private Button btnMenu, btnUp, btnDown, btnSave1, btnSave2, btnSave3, btnSave4, btnSave5, btnCallOrList, btnPTT, btnSecretMode;
     private boolean isAdminMode = false;
@@ -67,15 +66,20 @@ public class MainActivity extends AppCompatActivity {
     private int lastUserCount = -1;
     private boolean showListNames = false;
 
-    // V10.9: активная ячейка (0 = никакая) и массив кнопок пресетов
     private int activePreset = 0;
     private Button[] presetButtons;
+
+    // V11.6: Переменные для сканирования
+    private boolean isScanning = false;
+    private int scanIndex = 1;
+    private final Handler scanHandler = new Handler(Looper.getMainLooper());
+    private Runnable scanRunnable;
+    private Runnable resumeScanRunnable;
 
     private final Handler speakingHandler = new Handler(Looper.getMainLooper());
     private final Runnable resetSpeakingId = () -> {
         tvSpeakingId.setText("");
         imgGreen.setVisibility(View.INVISIBLE);
-        AppLog.add("MainActivity: resetSpeakingId — сброс текста CALL и зеленого индикатора (400 мс)");
     };
 
     private final Handler blinkHandler = new Handler(Looper.getMainLooper());
@@ -93,7 +97,6 @@ public class MainActivity extends AppCompatActivity {
     private final Runnable singleTapRunnable = () -> {
         if (!pttTapPending) return;
         pttTapPending = false;
-        AppLog.add("MainActivity: single tap (одиночный) — pttLatched=" + pttLatched);
         if (pttLatched) {
             stopPttLatch();
         }
@@ -103,11 +106,14 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onReceive(Context context, Intent intent) {
             int clientNumber = intent.getIntExtra("clientId", -1);
-            AppLog.add("MainActivity: BroadcastReceiver получил PMR_VOICE_RECEIVED, number=" + clientNumber);
             if (clientNumber != -1) {
+                // V11.6: При появлении звука останавливаем сканирование
+                if (isScanning) {
+                    pauseScanningForVoice();
+                }
+
                 if (!showListNames) {
                     String text = lastUserCount >= 0 ? String.valueOf(lastUserCount) : "";
-                    AppLog.add("MainActivity: show_list_names=false → CALL показывает количество: " + text);
                     tvSpeakingId.setText(text);
                     tvSpeakingId.setTextColor(Color.RED);
                     tvSpeakingId.setTypeface(null, Typeface.BOLD);
@@ -120,32 +126,33 @@ public class MainActivity extends AppCompatActivity {
                 int id;
                 if (currentChannel == 4) {
                     id = PmrSocket.Priznak_pmr;
-                    AppLog.add("MainActivity: 4-й канал (эхо) — принудительно ставим свой ID=" + id);
                 } else {
                     id = PmrSocket.getClientIdByNumber(clientNumber);
                 }
 
-                if (id == -1) {
-                    AppLog.add("MainActivity: CALL пропущен — number=" + clientNumber + " не найден в lastChanList");
-                    return;
-                }
-                if (PmrSocket.isAdminObserver(id)) {
-                    AppLog.add("MainActivity: CALL пропущен — id=" + id + " (админ/наблюдатель)");
-                    return;
-                }
+                if (id == -1) return;
+                if (PmrSocket.isAdminObserver(id)) return;
                 String name = NameBook.getName(MainActivity.this, id);
                 String text = String.format("%d %s", id, name);
-                AppLog.add("MainActivity: show_list_names=true → CALL: number=" + clientNumber
-                        + ", id=" + id + ", text=" + text);
 
                 tvSpeakingId.setText(text);
                 tvSpeakingId.setTextColor(Color.RED);
                 tvSpeakingId.setTypeface(null, Typeface.BOLD);
-
                 imgGreen.setVisibility(View.VISIBLE);
 
                 speakingHandler.removeCallbacks(resetSpeakingId);
                 speakingHandler.postDelayed(resetSpeakingId, 400);
+            }
+        }
+    };
+
+    // V11.6: Приемник конца звука для возобновления сканирования
+    private BroadcastReceiver voiceEndReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (isScanning && resumeScanRunnable != null) {
+                scanHandler.removeCallbacks(resumeScanRunnable);
+                scanHandler.postDelayed(resumeScanRunnable, 3000);
             }
         }
     };
@@ -156,7 +163,7 @@ public class MainActivity extends AppCompatActivity {
             int count = intent.getIntExtra("count", -1);
             if (count != -1) {
                 lastUserCount = count;
-                updateActiveUsers(count);
+                if (tvActiveUsers != null) tvActiveUsers.setText(String.valueOf(count));
             }
         }
     };
@@ -169,14 +176,10 @@ public class MainActivity extends AppCompatActivity {
         AppLog.init(getApplicationContext(), BuildConfig.VERSION_NAME);
 
         prefs = getSharedPreferences("pmr_prefs", MODE_PRIVATE);
-        AppLog.add("MainActivity: onCreate");
-
         soundEnabled = prefs.getBoolean("sound_enabled", true);
         try {
             toneGen = new ToneGenerator(AudioManager.STREAM_NOTIFICATION, 80);
-        } catch (Exception e) {
-            AppLog.add("MainActivity: ToneGenerator ошибка — " + e.getMessage());
-        }
+        } catch (Exception ignored) {}
 
         String savedVersion = prefs.getString("app_version", "0");
         if (!savedVersion.equals("10.5")) {
@@ -201,7 +204,6 @@ public class MainActivity extends AppCompatActivity {
                 .putBoolean("ask_password", true)
                 .putBoolean("show_power_button", false)
                 .apply();
-            AppLog.add("MainActivity: Настройки сброшены (V10.5): Mail=111111, Priznak=22222, PORT_prm=5253, PORT_prd=15000, ip=109.172.7.155, show_power_button=false");
         }
 
         pttLatchEnabled = prefs.getBoolean("ptt_latch_enabled", true);
@@ -219,26 +221,19 @@ public class MainActivity extends AppCompatActivity {
 
         currentChannel = prefs.getInt("current_channel", 4);
         isAdminMode = prefs.getBoolean("is_admin_mode", false);
-        AppLog.add("MainActivity: currentChannel=" + currentChannel + ", isAdminMode=" + isAdminMode);
 
         initViews();
-        resetPresetHighlight(); // V10.9: при старте никакая ячейка не подсвечена
+        resetPresetHighlight();
         setupListeners();
         updateUI();
-        updateServerIpVisibility(); // V11.0
+        updateServerIpVisibility();
         updatePowerButton();
 
-        // V10.5: автозапуск сервиса при старте приложения
         if (!PmrService.isRunning) {
-            AppLog.add("MainActivity: onCreate → автозапуск PmrService");
             try {
                 startService(new Intent(this, PmrService.class));
-            } catch (Exception e) {
-                AppLog.add("MainActivity: ОШИБКА автозапуска сервиса — " + e.getMessage());
-            }
+            } catch (Exception ignored) {}
         }
-
-        AppLog.add("MainActivity: onCreate — сервис автозапускается (V10.5)");
     }
 
     private void beep() {
@@ -250,23 +245,13 @@ public class MainActivity extends AppCompatActivity {
 
     private void requestMicPermission() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            AppLog.add("MainActivity: запрос разрешения на микрофон");
             ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.RECORD_AUDIO}, REQ_MIC);
-        } else {
-            AppLog.add("MainActivity: разрешение на микрофон уже есть");
         }
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == REQ_MIC) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                AppLog.add("MainActivity: Разрешение на микрофон получено");
-            } else {
-                AppLog.add("MainActivity: ОШИБКА — разрешение на микрофон отклонено!");
-            }
-        }
     }
 
     private void initViews() {
@@ -275,7 +260,7 @@ public class MainActivity extends AppCompatActivity {
         tvSpeakingId = findViewById(R.id.tvSpeakingId);
         tvVersion = findViewById(R.id.tvVersion);
         tvActiveUsers = findViewById(R.id.textView6);
-        tvServerIp = findViewById(R.id.tvServerIp); // V11.0
+        tvServerIp = findViewById(R.id.tvServerIp);
 
         imgRed = findViewById(R.id.imageView);
         imgGreen = findViewById(R.id.imageView2);
@@ -293,25 +278,17 @@ public class MainActivity extends AppCompatActivity {
         btnPTT = findViewById(R.id.btnPTT);
         btnSecretMode = findViewById(R.id.btnSecretMode);
 
-        // V10.9: массив кнопок пресетов
         presetButtons = new Button[]{btnSave1, btnSave2, btnSave3, btnSave4, btnSave5};
-
-        AppLog.add("MainActivity: initViews — найдены кнопки и TextView (btnPower есть), presetButtons.length=" + presetButtons.length);
     }
 
     private void setupListeners() {
         gestureDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
             @Override
-            public boolean onDown(@NonNull MotionEvent e) {
-                return true;
-            }
-
+            public boolean onDown(@NonNull MotionEvent e) { return true; }
             @Override
             public boolean onDoubleTap(@NonNull MotionEvent e) {
                 beep();
-                AppLog.add("MainActivity: ДВОЙНОЕ нажатие скрытой кнопки (GestureDetector)");
                 if (isAdminMode) {
-                    AppLog.add("MainActivity: выход из админки без пароля");
                     toggleAdminMode();
                 } else {
                     if (prefs.getBoolean("ask_password", true)) {
@@ -332,14 +309,9 @@ public class MainActivity extends AppCompatActivity {
         btnPower.setOnClickListener(v -> {
             beep();
             if (PmrService.isRunning) {
-                AppLog.add("MainActivity: btnPower → ВЫКЛ (stopService)");
-                if (pttLatched) {
-                    AppLog.add("MainActivity: btnPower → принудительно выключаем постоянную передачу");
-                    stopPttLatch();
-                }
+                if (pttLatched) stopPttLatch();
                 stopService(new Intent(this, PmrService.class));
             } else {
-                AppLog.add("MainActivity: btnPower → ВКЛ (startService)");
                 startService(new Intent(this, PmrService.class));
             }
             new Handler(Looper.getMainLooper()).postDelayed(this::updatePowerButton, 300);
@@ -347,62 +319,40 @@ public class MainActivity extends AppCompatActivity {
 
         btnMenu.setOnClickListener(v -> {
             beep();
-            AppLog.add("MainActivity: нажата MENU → SettingsActivity");
             startActivity(new Intent(this, SettingsActivity.class));
         });
 
+        // V11.6: Логика кнопки SCAN / LIST
         btnCallOrList.setOnClickListener(v -> {
             beep();
-            AppLog.add("MainActivity: нажата CALL/LIST, isAdminMode=" + isAdminMode);
             if (isAdminMode) {
-                try {
-                    AppLog.add("MainActivity: открываю ChanListActivity");
-                    startActivity(new Intent(this, ChanListActivity.class));
-                    AppLog.add("MainActivity: startActivity(ChanListActivity) — OK");
-                } catch (Exception e) {
-                    AppLog.add("MainActivity: ОШИБКА startActivity(ChanListActivity) — "
-                            + e.getClass().getSimpleName() + ": " + e.getMessage());
-                    Toast.makeText(this, "Ошибка: " + e.getMessage(), Toast.LENGTH_LONG).show();
-                }
+                startActivity(new Intent(this, ChanListActivity.class));
             } else {
-                if (PmrService.isRunning && PmrService.pmrSocket != null) {
-                    PmrService.pmrSocket.sendCall();
-                    Toast.makeText(this, "Вызов отправлен", Toast.LENGTH_SHORT).show();
-                } else {
-                    Toast.makeText(this, "Сервис не запущен", Toast.LENGTH_SHORT).show();
-                }
+                toggleScanning();
             }
         });
 
         btnUp.setOnClickListener(v -> {
             beep();
             if (currentChannel < 8) {
-                int old = currentChannel;
                 currentChannel++;
                 lastUserCount = -1;
                 if (tvActiveUsers != null) tvActiveUsers.setText("");
                 updateUI();
                 prefs.edit().putInt("current_channel", currentChannel).apply();
-                AppLog.add("MainActivity: UP, канал " + old + " → " + currentChannel + " (recreateSocket)");
-                if (PmrService.pmrSocket != null) {
-                    PmrService.pmrSocket.recreateSocket(this);
-                }
+                if (PmrService.pmrSocket != null) PmrService.pmrSocket.recreateSocket(this);
             }
         });
 
         btnDown.setOnClickListener(v -> {
             beep();
             if (currentChannel > 0) {
-                int old = currentChannel;
                 currentChannel--;
                 lastUserCount = -1;
                 if (tvActiveUsers != null) tvActiveUsers.setText("");
                 updateUI();
                 prefs.edit().putInt("current_channel", currentChannel).apply();
-                AppLog.add("MainActivity: DOWN, канал " + old + " → " + currentChannel + " (recreateSocket)");
-                if (PmrService.pmrSocket != null) {
-                    PmrService.pmrSocket.recreateSocket(this);
-                }
+                if (PmrService.pmrSocket != null) PmrService.pmrSocket.recreateSocket(this);
             }
         });
 
@@ -423,11 +373,7 @@ public class MainActivity extends AppCompatActivity {
                 case MotionEvent.ACTION_DOWN:
                     pttDownTime = System.currentTimeMillis();
                     pttHoldActive = false;
-                    AppLog.add("MainActivity: PTT DOWN, pttLatched=" + pttLatched
-                            + ", tapPending=" + pttTapPending
-                            + ", serviceRunning=" + PmrService.isRunning);
                     if (!PmrService.isRunning) {
-                        AppLog.add("MainActivity: PTT DOWN — сервис не запущен, Toast «Включите программу»");
                         Toast.makeText(this, "Включите программу", Toast.LENGTH_SHORT).show();
                         return true;
                     }
@@ -443,7 +389,6 @@ public class MainActivity extends AppCompatActivity {
                             beep();
                             imgRed.setVisibility(View.VISIBLE);
                             sendBroadcast(new Intent("PMR_START_RECORDING"));
-                            AppLog.add("MainActivity: PTT hold (MOVE, dt=" + dt + ") — START_RECORDING");
                         }
                     }
                     return true;
@@ -452,14 +397,8 @@ public class MainActivity extends AppCompatActivity {
                 case MotionEvent.ACTION_CANCEL:
                     long duration = System.currentTimeMillis() - pttDownTime;
                     boolean isCancel = event.getActionMasked() == MotionEvent.ACTION_CANCEL;
-                    AppLog.add("MainActivity: PTT UP/CANCEL, duration=" + duration
-                            + ", hold=" + pttHoldActive
-                            + ", pttLatched=" + pttLatched
-                            + ", tapPending=" + pttTapPending
-                            + ", cancel=" + isCancel);
 
                     if (!PmrService.isRunning) {
-                        AppLog.add("MainActivity: PTT UP — сервис не запущен, ничего не отправляем");
                         pttHoldActive = false;
                         pttTapPending = false;
                         tapHandler.removeCallbacks(singleTapRunnable);
@@ -470,13 +409,10 @@ public class MainActivity extends AppCompatActivity {
                         pttHoldActive = false;
                         imgRed.setVisibility(View.INVISIBLE);
                         sendBroadcast(new Intent("PMR_STOP_RECORDING"));
-                        AppLog.add("MainActivity: PTT hold завершено — STOP_RECORDING");
                         return true;
                     }
 
-                    if (isCancel) {
-                        return true;
-                    }
+                    if (isCancel) return true;
 
                     if (duration >= PTT_TAP_MAX_MS) {
                         if (!pttLatched) {
@@ -485,32 +421,93 @@ public class MainActivity extends AppCompatActivity {
                             sendBroadcast(new Intent("PMR_START_RECORDING"));
                             imgRed.setVisibility(View.INVISIBLE);
                             sendBroadcast(new Intent("PMR_STOP_RECORDING"));
-                            AppLog.add("MainActivity: PTT долгий одиночный — короткий START/STOP");
                         }
                         return true;
                     }
 
                     if (pttTapPending) {
                         cancelTapWaiting();
-                        AppLog.add("MainActivity: PTT double tap распознан");
-                        if (!pttLatchEnabled) {
-                            AppLog.add("MainActivity: PTT double tap — ptt_latch_enabled=false, игнорируем");
-                        } else {
-                            if (pttLatched) {
-                                stopPttLatch();
-                            } else {
-                                startPttLatch();
-                            }
+                        if (pttLatchEnabled) {
+                            if (pttLatched) stopPttLatch();
+                            else startPttLatch();
                         }
                     } else {
                         pttTapPending = true;
                         tapHandler.postDelayed(singleTapRunnable, PTT_DOUBLE_TAP_TIMEOUT_MS);
-                        AppLog.add("MainActivity: PTT tap #1 — ожидание второго тапа " + PTT_DOUBLE_TAP_TIMEOUT_MS + " мс");
                     }
                     return true;
             }
             return false;
         });
+    }
+
+    // V11.6: Методы для управления сканированием
+    private void toggleScanning() {
+        if (isScanning) {
+            stopScanning();
+        } else {
+            startScanning();
+        }
+    }
+
+    private void startScanning() {
+        isScanning = true;
+        btnCallOrList.setText("SCAN");
+        applyScanHighlight(true);
+        
+        scanIndex = 1;
+        scanRunnable = new Runnable() {
+            @Override
+            public void run() {
+                if (!isScanning) return;
+                if (prefs.contains("preset_ip_" + scanIndex)) {
+                    loadPreset(scanIndex);
+                }
+                scanIndex++;
+                if (scanIndex > 5) scanIndex = 1;
+                scanHandler.postDelayed(this, 2000);
+            }
+        };
+        scanHandler.post(scanRunnable);
+        Toast.makeText(this, "Сканирование ВКЛ", Toast.LENGTH_SHORT).show();
+    }
+
+    private void stopScanning() {
+        isScanning = false;
+        btnCallOrList.setText("CALL");
+        applyScanHighlight(false);
+        scanHandler.removeCallbacks(scanRunnable);
+        if (resumeScanRunnable != null) scanHandler.removeCallbacks(resumeScanRunnable);
+        resetPresetHighlight();
+        Toast.makeText(this, "Сканирование ВЫКЛ", Toast.LENGTH_SHORT).show();
+    }
+
+    private void pauseScanningForVoice() {
+        scanHandler.removeCallbacks(scanRunnable);
+        resumeScanRunnable = new Runnable() {
+            @Override
+            public void run() {
+                if (isScanning) {
+                    scanHandler.post(scanRunnable);
+                }
+            }
+        };
+    }
+
+    private void applyScanHighlight(boolean active) {
+        if (btnCallOrList == null) return;
+        if (active) {
+            GradientDrawable gd = new GradientDrawable();
+            gd.setShape(GradientDrawable.RECTANGLE);
+            gd.setColor(Color.TRANSPARENT);
+            float r = PRESET_CORNER_RADIUS_DP * getResources().getDisplayMetrics().density;
+            gd.setCornerRadius(r);
+            float sw = PRESET_STROKE_WIDTH_DP * getResources().getDisplayMetrics().density;
+            gd.setStroke((int) sw, getResources().getColor(R.color.scan_color));
+            btnCallOrList.setBackground(gd);
+        } else {
+            btnCallOrList.setBackgroundResource(R.drawable.roundshapebtn);
+        }
     }
 
     private void cancelTapWaiting() {
@@ -519,18 +516,12 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void startPttLatch() {
-        if (pttLatched) return;
-        if (!PmrService.isRunning) {
-            AppLog.add("MainActivity: startPttLatch — сервис не запущен, Toast «Включите программу»");
-            Toast.makeText(this, "Включите программу", Toast.LENGTH_SHORT).show();
-            return;
-        }
+        if (pttLatched || !PmrService.isRunning) return;
         pttLatched = true;
         blinkState = false;
         imgRed.setVisibility(View.VISIBLE);
         sendBroadcast(new Intent("PMR_START_RECORDING"));
         blinkHandler.postDelayed(blinkRunnable, PTT_LATCH_BLINK_PERIOD_MS);
-        AppLog.add("MainActivity: PTT latch ВКЛ — постоянная передача, мигание 500 мс");
         Toast.makeText(this, "Постоянная передача ВКЛ", Toast.LENGTH_SHORT).show();
     }
 
@@ -540,7 +531,6 @@ public class MainActivity extends AppCompatActivity {
         blinkHandler.removeCallbacks(blinkRunnable);
         imgRed.setVisibility(View.INVISIBLE);
         sendBroadcast(new Intent("PMR_STOP_RECORDING"));
-        AppLog.add("MainActivity: PTT latch ВЫКЛ — переход на приём");
         Toast.makeText(this, "Передача ВЫКЛ", Toast.LENGTH_SHORT).show();
     }
 
@@ -551,15 +541,11 @@ public class MainActivity extends AppCompatActivity {
 
         new AlertDialog.Builder(this)
                 .setTitle("Вход в режим Админа")
-                .setMessage("Введите пароль:")
                 .setView(input)
                 .setPositiveButton("Войти", (dialog, which) -> {
-                    String pass = input.getText().toString();
-                    if (ADMIN_PASSWORD.equals(pass)) {
-                        AppLog.add("MainActivity: пароль верный");
+                    if (ADMIN_PASSWORD.equals(input.getText().toString())) {
                         toggleAdminMode();
                     } else {
-                        AppLog.add("MainActivity: неверный пароль");
                         Toast.makeText(this, "Неверный пароль", Toast.LENGTH_SHORT).show();
                     }
                 })
@@ -567,60 +553,35 @@ public class MainActivity extends AppCompatActivity {
                 .show();
     }
 
-    // V10.5: при входе в админку — ask_password=true
     private void toggleAdminMode() {
         isAdminMode = !isAdminMode;
         SharedPreferences.Editor ed = prefs.edit();
         ed.putBoolean("is_admin_mode", isAdminMode);
-        if (isAdminMode) {
-            ed.putBoolean("ask_password", true);
-            AppLog.add("MainActivity: V10.5 вход в админку → ask_password=true");
-        }
+        if (isAdminMode) ed.putBoolean("ask_password", true);
         ed.apply();
-        AppLog.add("MainActivity: переключение режима → isAdminMode=" + isAdminMode);
-        Toast.makeText(this, isAdminMode ? "РЕЖИМ АДМИНА" : "РЕЖИМ КЛИЕНТА", Toast.LENGTH_SHORT).show();
         updateUI();
     }
 
-    // V10.5: обновление видимости/иконки кнопки ВКЛ/ВЫКЛ
     private void updatePowerButton() {
         if (btnPower == null) return;
         boolean show = prefs.getBoolean("show_power_button", false);
         btnPower.setVisibility(show ? View.VISIBLE : View.GONE);
-        if (!show) {
-            AppLog.add("MainActivity: updatePowerButton → btnPower СКРЫТ (show_power_button=false)");
-            return;
-        }
-        if (PmrService.isRunning) {
-            btnPower.setImageResource(R.drawable.power_on);
-            AppLog.add("MainActivity: updatePowerButton → ЗЕЛЁНЫЙ КРУЖОК (работает)");
-        } else {
-            btnPower.setImageResource(R.drawable.power_off);
-            AppLog.add("MainActivity: updatePowerButton → КРАСНЫЙ КРУЖОК (выключено)");
+        if (show) {
+            btnPower.setImageResource(PmrService.isRunning ? R.drawable.power_on : R.drawable.power_off);
         }
     }
 
-    private void updateActiveUsers(int count) {
-        if (tvActiveUsers == null) return;
-        tvActiveUsers.setText(String.valueOf(count));
-    }
-
-    // V11.0: обновление видимости и текста IP сервера
     private void updateServerIpVisibility() {
         if (tvServerIp == null) return;
         boolean show = prefs.getBoolean("show_server_ip", false);
         if (show) {
-            String ip = prefs.getString("ip_server", "109.172.7.155");
-            tvServerIp.setText(ip);
+            tvServerIp.setText(prefs.getString("ip_server", "109.172.7.155"));
             tvServerIp.setVisibility(View.VISIBLE);
-            AppLog.add("MainActivity: updateServerIpVisibility → показ IP: " + ip);
         } else {
             tvServerIp.setVisibility(View.GONE);
-            AppLog.add("MainActivity: updateServerIpVisibility → IP скрыт (show_server_ip=false)");
         }
     }
 
-    // V10.9: сохранение пресета — Toast в формате "Ячейка N: ip:port / index"
     private void savePreset(int presetNum) {
         String ip = prefs.getString("ip_server", "109.172.7.155");
         int prm = prefs.getInt("PORT_prm", 5253);
@@ -628,32 +589,20 @@ public class MainActivity extends AppCompatActivity {
         String index = prefs.getString("MyMailIndex", "111111");
         String priznak = prefs.getString("Priznak_pmr", "22222");
 
-        SharedPreferences.Editor editor = prefs.edit();
-        editor.putInt("preset_channel_" + presetNum, currentChannel);
-        editor.putString("preset_index_" + presetNum, index);
-        editor.putString("preset_priznak_" + presetNum, priznak);
-        editor.putString("preset_ip_" + presetNum, ip);
-        editor.putInt("preset_port_prm_" + presetNum, prm);
-        editor.putInt("preset_port_prd_" + presetNum, prd);
-        editor.apply();
+        prefs.edit()
+            .putInt("preset_channel_" + presetNum, currentChannel)
+            .putString("preset_index_" + presetNum, index)
+            .putString("preset_priznak_" + presetNum, priznak)
+            .putString("preset_ip_" + presetNum, ip)
+            .putInt("preset_port_prm_" + presetNum, prm)
+            .putInt("preset_port_prd_" + presetNum, prd)
+            .apply();
 
-        AppLog.add("MainActivity: savePreset(" + presetNum + ") — channel=" + currentChannel
-                + ", index=" + index + ", priznak=" + priznak
-                + ", PORT_prm=" + prm + ", PORT_prd=" + prd + ", ip=" + ip);
-
-        // V10.9: одна строка, читаемо, помещается в Toast
-        String info = "Ячейка " + presetNum + ": " + ip + ":" + prm + " / " + index;
-        Toast.makeText(this, info, Toast.LENGTH_LONG).show();
+        Toast.makeText(this, "Ячейка " + presetNum + ": " + ip + ":" + prm + " / " + index, Toast.LENGTH_LONG).show();
     }
 
-    // V10.9: загрузка пресета — проверка пустой ячейки, применение, подсветка
     private void loadPreset(int presetNum) {
-        // V10.9: пустая ячейка — ничего не грузим
-        if (!prefs.contains("preset_ip_" + presetNum)) {
-            AppLog.add("MainActivity: loadPreset(" + presetNum + ") — ячейка пуста");
-            Toast.makeText(this, "Ячейка " + presetNum + " пуста", Toast.LENGTH_SHORT).show();
-            return;
-        }
+        if (!prefs.contains("preset_ip_" + presetNum)) return;
 
         int channel = prefs.getInt("preset_channel_" + presetNum, currentChannel);
         String index = prefs.getString("preset_index_" + presetNum, prefs.getString("MyMailIndex", "111111"));
@@ -675,54 +624,33 @@ public class MainActivity extends AppCompatActivity {
             .putInt("PORT_prd", prd)
             .apply();
 
-        AppLog.add("MainActivity: loadPreset(" + presetNum + ") — channel=" + channel
-                + ", index=" + index + ", priznak=" + priznak
-                + ", PORT_prm=" + prm + ", PORT_prd=" + prd + ", ip=" + ip);
-
         if (PmrService.pmrSocket != null) {
-            AppLog.add("MainActivity: loadPreset → recreateSocket");
             PmrService.pmrSocket.recreateSocket(this);
-        } else {
-            AppLog.add("MainActivity: loadPreset — pmrSocket == null (сервис не запущен), recreateSocket пропущен");
         }
 
         updateUI();
-        updateServerIpVisibility(); // V11.0: обновить IP, если показывается
-
-        // V10.9: подсветка активной ячейки
+        updateServerIpVisibility();
         highlightPreset(presetNum);
-
-        // V10.9: Toast одной строкой
-        String info = "Загружено из ячейки " + presetNum + ": " + ip + ":" + prm + " / " + index;
-        Toast.makeText(this, info, Toast.LENGTH_LONG).show();
     }
 
-    // V10.9: подсветка активной ячейки — снять с предыдущей, поставить на новую
     private void highlightPreset(int presetNum) {
         if (presetButtons == null) return;
         if (presetNum < 1 || presetNum > presetButtons.length) return;
-        // снять с предыдущей
         if (activePreset >= 1 && activePreset <= presetButtons.length) {
             applyPresetHighlight(presetButtons[activePreset - 1], false);
         }
-        // поставить на новую
         applyPresetHighlight(presetButtons[presetNum - 1], true);
         activePreset = presetNum;
-        AppLog.add("MainActivity: highlightPreset(" + presetNum + ") — активная ячейка " + presetNum);
     }
 
-    // V10.9: сброс подсветки со всех ячеек (например, при старте Activity)
     private void resetPresetHighlight() {
         if (presetButtons == null) return;
         for (int i = 0; i < presetButtons.length; i++) {
             applyPresetHighlight(presetButtons[i], false);
         }
         activePreset = 0;
-        AppLog.add("MainActivity: resetPresetHighlight — все ячейки без подсветки");
     }
 
-    // V10.9: применить/снять подсветку кнопки.
-    // Подсветка = рамка #FF9800 (2.5dp) + Typeface.BOLD. При снятии — возвращаем roundshapebtn.
     private void applyPresetHighlight(Button btn, boolean highlighted) {
         if (btn == null) return;
         if (highlighted) {
@@ -751,7 +679,7 @@ public class MainActivity extends AppCompatActivity {
             btnCallOrList.setText("LIST");
         } else {
             tvChannel.setTextColor(getResources().getColor(android.R.color.black));
-            btnCallOrList.setText("CALL");
+            btnCallOrList.setText(isScanning ? "SCAN" : "CALL");
         }
     }
 
@@ -763,51 +691,42 @@ public class MainActivity extends AppCompatActivity {
         currentChannel = prefs.getInt("current_channel", 4);
         pttLatchEnabled = prefs.getBoolean("ptt_latch_enabled", true);
         showListNames = prefs.getBoolean("show_list_names", false);
-        AppLog.add("MainActivity: onResume, isAdminMode=" + isAdminMode
-                + ", currentChannel=" + currentChannel
-                + ", ptt_latch_enabled=" + pttLatchEnabled
-                + ", show_list_names=" + showListNames
-                + ", show_power_button=" + prefs.getBoolean("show_power_button", false)
-                + ", show_server_ip=" + prefs.getBoolean("show_server_ip", false));
+        
         updateUI();
-        updateServerIpVisibility(); // V11.0
+        updateServerIpVisibility();
         updatePowerButton();
+        
         registerReceiver(voiceReceiver, new IntentFilter("PMR_VOICE_RECEIVED"));
+        registerReceiver(voiceEndReceiver, new IntentFilter("PMR_VOICE_END"));
         registerReceiver(usersReceiver, new IntentFilter("PMR_USERS_CHANGED"));
 
-        if (wakeLock != null && !wakeLock.isHeld()) {
-            wakeLock.acquire();
-        }
+        if (wakeLock != null && !wakeLock.isHeld()) wakeLock.acquire();
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-        AppLog.add("MainActivity: onPause");
         unregisterReceiver(voiceReceiver);
+        try { unregisterReceiver(voiceEndReceiver); } catch (Exception ignored) {}
         try { unregisterReceiver(usersReceiver); } catch (Exception ignored) {}
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        AppLog.add("MainActivity: onDestroy");
         speakingHandler.removeCallbacks(resetSpeakingId);
         blinkHandler.removeCallbacks(blinkRunnable);
         tapHandler.removeCallbacks(singleTapRunnable);
+        scanHandler.removeCallbacks(scanRunnable);
+        if (resumeScanRunnable != null) scanHandler.removeCallbacks(resumeScanRunnable);
+        
         if (pttLatched) {
-            AppLog.add("MainActivity: onDestroy — принудительно выключаем постоянную передачу");
             try { sendBroadcast(new Intent("PMR_STOP_RECORDING")); } catch (Exception ignored) {}
-            pttLatched = false;
         }
         if (pttHoldActive) {
             try { sendBroadcast(new Intent("PMR_STOP_RECORDING")); } catch (Exception ignored) {}
-            pttHoldActive = false;
         }
-        if (toneGen != null) {
-            try { toneGen.release(); } catch (Exception ignored) {}
-            toneGen = null;
-        }
+        if (toneGen != null) toneGen.release();
         if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
     }
 }

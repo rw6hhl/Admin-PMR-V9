@@ -10,5 +10,7 @@
     <color name="colorback">#4b4b4b</color>
     <color name="colortextabout">#03dac5</color>
     <color name="active">#e8c735</color>
-    <color name="admin_channel">#006400</color> <!-- V9.77: тёмно-зелёный для режима админа -->
+    <color name="admin_channel">#006400</color>
+    <!-- V11.6: Красный цвет для ореола сканирования -->
+    <color name="scan_color">#FF0000</color>
 </resources>
