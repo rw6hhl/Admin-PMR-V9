@@ -69,12 +69,15 @@ public class MainActivity extends AppCompatActivity {
     private int activePreset = 0;
     private Button[] presetButtons;
 
-    // V11.6: Переменные для сканирования
+    // V11.7: Переменные сканирования
     private boolean isScanning = false;
+    private int scanMode = 0; // 0 = ячейки, 1 = каналы внутри ячейки
     private int scanIndex = 1;
+    private int scanTargetPreset = 1;
     private final Handler scanHandler = new Handler(Looper.getMainLooper());
     private Runnable scanRunnable;
     private Runnable resumeScanRunnable;
+    private Runnable waitPresetRunnable;
 
     private final Handler speakingHandler = new Handler(Looper.getMainLooper());
     private final Runnable resetSpeakingId = () -> {
@@ -97,9 +100,7 @@ public class MainActivity extends AppCompatActivity {
     private final Runnable singleTapRunnable = () -> {
         if (!pttTapPending) return;
         pttTapPending = false;
-        if (pttLatched) {
-            stopPttLatch();
-        }
+        if (pttLatched) stopPttLatch();
     };
 
     private BroadcastReceiver voiceReceiver = new BroadcastReceiver() {
@@ -107,10 +108,7 @@ public class MainActivity extends AppCompatActivity {
         public void onReceive(Context context, Intent intent) {
             int clientNumber = intent.getIntExtra("clientId", -1);
             if (clientNumber != -1) {
-                // V11.6: При появлении звука останавливаем сканирование
-                if (isScanning) {
-                    pauseScanningForVoice();
-                }
+                if (isScanning) pauseScanningForVoice();
 
                 if (!showListNames) {
                     String text = lastUserCount >= 0 ? String.valueOf(lastUserCount) : "";
@@ -146,7 +144,6 @@ public class MainActivity extends AppCompatActivity {
         }
     };
 
-    // V11.6: Приемник конца звука для возобновления сканирования
     private BroadcastReceiver voiceEndReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -322,19 +319,30 @@ public class MainActivity extends AppCompatActivity {
             startActivity(new Intent(this, SettingsActivity.class));
         });
 
-        // V11.6: Логика кнопки SCAN / LIST
+        // V11.7: Кнопка SCAN / LIST
         btnCallOrList.setOnClickListener(v -> {
             beep();
             if (isAdminMode) {
                 startActivity(new Intent(this, ChanListActivity.class));
             } else {
-                toggleScanning();
+                if (!isScanning) {
+                    startScanning();
+                } else {
+                    stopScanning();
+                }
             }
         });
 
+        // V11.7: Перехват UP и DOWN для сканирования
         btnUp.setOnClickListener(v -> {
             beep();
-            if (currentChannel < 8) {
+            if (isScanning && scanMode == 0) {
+                // Переход в режим сканирования каналов выбранной ячейки
+                scanMode = 1;
+                scanTargetPreset = scanIndex;
+                Toast.makeText(this, "Сканирование каналов ячейки " + scanTargetPreset, Toast.LENGTH_SHORT).show();
+                loadPreset(scanTargetPreset);
+            } else if (currentChannel < 8) {
                 currentChannel++;
                 lastUserCount = -1;
                 if (tvActiveUsers != null) tvActiveUsers.setText("");
@@ -346,7 +354,12 @@ public class MainActivity extends AppCompatActivity {
 
         btnDown.setOnClickListener(v -> {
             beep();
-            if (currentChannel > 0) {
+            if (isScanning && scanMode == 0) {
+                scanMode = 1;
+                scanTargetPreset = scanIndex;
+                Toast.makeText(this, "Сканирование каналов ячейки " + scanTargetPreset, Toast.LENGTH_SHORT).show();
+                loadPreset(scanTargetPreset);
+            } else if (currentChannel > 0) {
                 currentChannel--;
                 lastUserCount = -1;
                 if (tvActiveUsers != null) tvActiveUsers.setText("");
@@ -356,11 +369,12 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        btnSave1.setOnClickListener(v -> { beep(); loadPreset(1); });
-        btnSave2.setOnClickListener(v -> { beep(); loadPreset(2); });
-        btnSave3.setOnClickListener(v -> { beep(); loadPreset(3); });
-        btnSave4.setOnClickListener(v -> { beep(); loadPreset(4); });
-        btnSave5.setOnClickListener(v -> { beep(); loadPreset(5); });
+        // V11.7: Выбор ячейки для сканирования каналов
+        btnSave1.setOnClickListener(v -> { beep(); handlePresetClick(1); });
+        btnSave2.setOnClickListener(v -> { beep(); handlePresetClick(2); });
+        btnSave3.setOnClickListener(v -> { beep(); handlePresetClick(3); });
+        btnSave4.setOnClickListener(v -> { beep(); handlePresetClick(4); });
+        btnSave5.setOnClickListener(v -> { beep(); handlePresetClick(5); });
 
         btnSave1.setOnLongClickListener(v -> { beep(); savePreset(1); return true; });
         btnSave2.setOnLongClickListener(v -> { beep(); savePreset(2); return true; });
@@ -373,6 +387,7 @@ public class MainActivity extends AppCompatActivity {
                 case MotionEvent.ACTION_DOWN:
                     pttDownTime = System.currentTimeMillis();
                     pttHoldActive = false;
+                    if (isScanning) stopScanning(); // V11.7: Выключаем сканирование при PTT
                     if (!PmrService.isRunning) {
                         Toast.makeText(this, "Включите программу", Toast.LENGTH_SHORT).show();
                         return true;
@@ -441,25 +456,28 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    // V11.6: Методы для управления сканированием
-    private void toggleScanning() {
-        if (isScanning) {
-            stopScanning();
+    private void handlePresetClick(int presetNum) {
+        if (isScanning && scanMode == 0) {
+            // V11.7: Установка целевой ячейки для сканирования каналов
+            scanTargetPreset = presetNum;
+            loadPreset(presetNum);
+            Toast.makeText(this, "Выбрана ячейка " + presetNum + ". Нажмите UP/DOWN для сканирования каналов", Toast.LENGTH_LONG).show();
         } else {
-            startScanning();
+            loadPreset(presetNum);
         }
     }
 
     private void startScanning() {
         isScanning = true;
+        scanMode = 0;
+        scanIndex = 1;
         btnCallOrList.setText("SCAN");
         applyScanHighlight(true);
         
-        scanIndex = 1;
         scanRunnable = new Runnable() {
             @Override
             public void run() {
-                if (!isScanning) return;
+                if (!isScanning || scanMode != 0) return;
                 if (prefs.contains("preset_ip_" + scanIndex)) {
                     loadPreset(scanIndex);
                 }
@@ -469,17 +487,17 @@ public class MainActivity extends AppCompatActivity {
             }
         };
         scanHandler.post(scanRunnable);
-        Toast.makeText(this, "Сканирование ВКЛ", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "Сканирование ВКЛ (нажмите UP/DOWN для выбора ячейки)", Toast.LENGTH_LONG).show();
     }
 
     private void stopScanning() {
         isScanning = false;
-        btnCallOrList.setText("CALL");
+        scanMode = 0;
+        btnCallOrList.setText("SCAN");
         applyScanHighlight(false);
         scanHandler.removeCallbacks(scanRunnable);
         if (resumeScanRunnable != null) scanHandler.removeCallbacks(resumeScanRunnable);
         resetPresetHighlight();
-        Toast.makeText(this, "Сканирование ВЫКЛ", Toast.LENGTH_SHORT).show();
     }
 
     private void pauseScanningForVoice() {
@@ -488,10 +506,30 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void run() {
                 if (isScanning) {
-                    scanHandler.post(scanRunnable);
+                    if (scanMode == 0) {
+                        // Сканируем ячейки
+                        scanHandler.post(scanRunnable);
+                    } else {
+                        // Сканируем каналы внутри ячейки
+                        scanNextChannel();
+                    }
                 }
             }
         };
+    }
+
+    private void scanNextChannel() {
+        if (!isScanning || scanMode != 1) return;
+        if (currentChannel < 8) currentChannel++;
+        else currentChannel = 1;
+
+        lastUserCount = -1;
+        if (tvActiveUsers != null) tvActiveUsers.setText("");
+        updateUI();
+        prefs.edit().putInt("current_channel", currentChannel).apply();
+        if (PmrService.pmrSocket != null) PmrService.pmrSocket.recreateSocket(this);
+
+        scanHandler.postDelayed(scanRunnable, 2000);
     }
 
     private void applyScanHighlight(boolean active) {
@@ -679,7 +717,7 @@ public class MainActivity extends AppCompatActivity {
             btnCallOrList.setText("LIST");
         } else {
             tvChannel.setTextColor(getResources().getColor(android.R.color.black));
-            btnCallOrList.setText(isScanning ? "SCAN" : "CALL");
+            btnCallOrList.setText("SCAN");
         }
     }
 
