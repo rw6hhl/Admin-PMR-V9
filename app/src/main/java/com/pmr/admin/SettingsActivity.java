@@ -16,7 +16,6 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 
-import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
@@ -24,12 +23,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
-
-import javax.net.ssl.HttpsURLConnection;
 
 public class SettingsActivity extends AppCompatActivity {
 
@@ -41,15 +36,6 @@ public class SettingsActivity extends AppCompatActivity {
     private Button btnChanList, btnLogs, btnLoadList;
     private CheckBox cbVerboseLog, cbSoundEnabled, cbAskPassword, cbPttLatch, cbShowListNames;
     private CheckBox cbSimplex, cbShowPowerButton, cbShowServerIp;
-
-    private String pendingDownloadUrl = null;
-
-    private final ActivityResultLauncher<String> saveApkLauncher =
-            registerForActivityResult(new ActivityResultContracts.CreateDocument("application/vnd.android.package-archive"), uri -> {
-                if (uri != null && pendingDownloadUrl != null) {
-                    downloadApkToUri(pendingDownloadUrl, uri);
-                }
-            });
 
     private final ActivityResultLauncher<String[]> openListLauncher =
             registerForActivityResult(new ActivityResultContracts.OpenDocument(), uri -> {
@@ -131,7 +117,7 @@ public class SettingsActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_settings);
-        AppLog.add("SettingsActivity: onCreate (V12.7)");
+        AppLog.add("SettingsActivity: onCreate (V12.8)");
 
         prefs = getSharedPreferences("pmr_prefs", MODE_PRIVATE);
 
@@ -269,9 +255,13 @@ public class SettingsActivity extends AppCompatActivity {
             btnImport.setOnClickListener(v -> importPresetsLauncher.launch(new String[]{"text/plain", "*/*"}));
         }
 
+        // V12.8: Открытие папки apk в браузере
         Button btnCheckUpdate = findViewById(R.id.btnCheckUpdate);
         if (btnCheckUpdate != null) {
-            btnCheckUpdate.setOnClickListener(v -> checkForUpdates());
+            btnCheckUpdate.setOnClickListener(v -> {
+                String url = "https://github.com/rw6hhl/Admin-PMR-V9/tree/main/apk";
+                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+            });
         }
     }
 
@@ -285,137 +275,6 @@ public class SettingsActivity extends AppCompatActivity {
                     dialog.dismiss();
                 })
                 .show();
-    }
-
-    // V12.7: Проверка обновлений с прямым IP-адресом для обхода сбоев DNS
-    private void checkForUpdates() {
-        AppLog.add("SettingsActivity: Начало проверки обновлений (V12.7)");
-        Toast.makeText(this, "Проверка обновлений...", Toast.LENGTH_SHORT).show();
-        
-        new Thread(() -> {
-            try {
-                // Используем прямой IP-адрес GitHub API
-                URL url = new URL("https://140.82.121.6/repos/rw6hhl/Admin-PMR-V9/releases/latest");
-                AppLog.add("SettingsActivity: URL запроса — " + url);
-                
-                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                conn.setRequestMethod("GET");
-                conn.setRequestProperty("Host", "api.github.com"); // Указываем хост
-                conn.setRequestProperty("Accept", "application/vnd.github.v3+json");
-                conn.setRequestProperty("User-Agent", "Admin-PMR-App");
-                conn.setConnectTimeout(10000);
-                conn.setReadTimeout(10000);
-
-                // Игнорируем проверку сертификата для прямого IP
-                HttpsURLConnection.setDefaultHostnameVerifier((hostname, session) -> true);
-
-                int responseCode = conn.getResponseCode();
-                AppLog.add("SettingsActivity: Код ответа сервера — " + responseCode);
-
-                if (responseCode == 200) {
-                    BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
-                    StringBuilder response = new StringBuilder();
-                    String line;
-                    while ((line = in.readLine()) != null) response.append(line);
-                    in.close();
-
-                    JSONObject json = new JSONObject(response.toString());
-                    String tagName = json.getString("tag_name");
-                    JSONArray assets = json.getJSONArray("assets");
-                    String downloadUrl = null;
-
-                    for (int i = 0; i < assets.length(); i++) {
-                        JSONObject asset = assets.getJSONObject(i);
-                        String name = asset.getString("name");
-                        if (name.endsWith(".apk")) {
-                            downloadUrl = asset.getString("browser_download_url");
-                            break;
-                        }
-                    }
-
-                    int latestVersionCode = 0;
-                    try {
-                        latestVersionCode = Integer.parseInt(tagName.replace("v", ""));
-                    } catch (Exception ignored) {}
-
-                    AppLog.add("SettingsActivity: Найден тег — " + tagName + ", Код версии — " + latestVersionCode + ", Текущий код — " + BuildConfig.VERSION_CODE);
-
-                    final String finalUrl = downloadUrl;
-                    final int finalVersionCode = latestVersionCode;
-                    if (downloadUrl != null && latestVersionCode > BuildConfig.VERSION_CODE) {
-                        runOnUiThread(() -> showUpdateDialog(tagName, finalUrl));
-                    } else {
-                        runOnUiThread(() -> Toast.makeText(this, "У вас последняя версия", Toast.LENGTH_LONG).show());
-                    }
-                } else if (responseCode == 504) {
-                    AppLog.add("SettingsActivity: Ошибка 504 — сервер перегружен");
-                    runOnUiThread(this::showServerBusyDialog);
-                } else {
-                    AppLog.add("SettingsActivity: Ошибка сервера — " + responseCode);
-                    runOnUiThread(() -> Toast.makeText(this, "Ошибка сервера: " + responseCode, Toast.LENGTH_LONG).show());
-                }
-            } catch (Exception e) {
-                AppLog.add("SettingsActivity: ИСКЛЮЧЕНИЕ при проверке обновлений — " + e.toString());
-                runOnUiThread(() -> Toast.makeText(this, "Ошибка проверки: " + e.getMessage(), Toast.LENGTH_LONG).show());
-            }
-        }).start();
-    }
-
-    private void showServerBusyDialog() {
-        new AlertDialog.Builder(this)
-                .setTitle("Сервер перегружен (504)")
-                .setMessage("Сервер GitHub временно недоступен. Вы можете скачать обновление вручную со страницы релизов.")
-                .setPositiveButton("Открыть страницу", (dialog, which) -> {
-                    String url = "https://github.com/rw6hhl/Admin-PMR-V9/releases/latest";
-                    startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
-                })
-                .setNegativeButton("Закрыть", null)
-                .show();
-    }
-
-    private void showUpdateDialog(String versionName, String downloadUrl) {
-        pendingDownloadUrl = downloadUrl;
-        new AlertDialog.Builder(this)
-                .setTitle("Доступно обновление")
-                .setMessage("Найдена новая версия: " + versionName + "\n\nВНИМАНИЕ: Для установки новой версии необходимо удалить старую!\n\nНажмите «ОК», чтобы выбрать папку для сохранения файла.")
-                .setPositiveButton("ОК", (dialog, which) -> {
-                    saveApkLauncher.launch("app-" + versionName + ".apk");
-                })
-                .setNegativeButton("Отмена", null)
-                .show();
-    }
-
-    private void downloadApkToUri(String downloadUrl, Uri destinationUri) {
-        AppLog.add("SettingsActivity: Начало скачивания — " + downloadUrl);
-        Toast.makeText(this, "Скачивание...", Toast.LENGTH_SHORT).show();
-        new Thread(() -> {
-            try {
-                URL url = new URL(downloadUrl);
-                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                conn.connect();
-
-                try (InputStream input = conn.getInputStream();
-                     OutputStream output = getContentResolver().openOutputStream(destinationUri)) {
-                    if (output == null) throw new IOException("Не удалось открыть файл для записи");
-
-                    byte[] buffer = new byte[4096];
-                    int bytesRead;
-                    while ((bytesRead = input.read(buffer)) != -1) {
-                        output.write(buffer, 0, bytesRead);
-                    }
-                    output.flush();
-                }
-
-                AppLog.add("SettingsActivity: Скачивание завершено успешно");
-                runOnUiThread(() -> {
-                    Toast.makeText(this, "Файл успешно сохранен. Удалите старую версию и установите новую.", Toast.LENGTH_LONG).show();
-                });
-
-            } catch (Exception e) {
-                AppLog.add("SettingsActivity: ОШИБКА скачивания — " + e.toString());
-                runOnUiThread(() -> Toast.makeText(this, "Ошибка скачивания: " + e.getMessage(), Toast.LENGTH_LONG).show());
-            }
-        }).start();
     }
 
     private void saveSettings() {
