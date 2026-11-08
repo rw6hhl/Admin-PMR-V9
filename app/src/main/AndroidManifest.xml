@@ -6,6 +6,10 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    
+    <!-- V12.0: Новые разрешения для Android 14+ -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="true"
@@ -23,23 +27,17 @@
             </intent-filter>
         </activity>
 
-        <activity android:name=".SettingsActivity"
-            android:exported="false"
-            android:screenOrientation="portrait" />
-        <activity android:name=".PasswordActivity"
-            android:exported="false"
-            android:screenOrientation="portrait" />
-        <activity android:name=".ChanListActivity"
-            android:exported="false"
-            android:screenOrientation="portrait" />
-        <activity android:name=".LogActivity"
-            android:exported="false"
-            android:screenOrientation="portrait" />
-        <activity android:name=".InfoActivity"
-            android:exported="false"
-            android:screenOrientation="portrait" />
+        <activity android:name=".SettingsActivity" android:exported="false" android:screenOrientation="portrait" />
+        <activity android:name=".PasswordActivity" android:exported="false" android:screenOrientation="portrait" />
+        <activity android:name=".ChanListActivity" android:exported="false" android:screenOrientation="portrait" />
+        <activity android:name=".LogActivity" android:exported="false" android:screenOrientation="portrait" />
+        <activity android:name=".InfoActivity" android:exported="false" android:screenOrientation="portrait" />
 
-        <service android:name=".PmrService" android:foregroundServiceType="microphone" />
+        <!-- V12.0: Явно указан тип службы для Android 14+ -->
+        <service 
+            android:name=".PmrService" 
+            android:foregroundServiceType="microphone" 
+            android:exported="false" />
 
         <provider
             android:name="androidx.core.content.FileProvider"
