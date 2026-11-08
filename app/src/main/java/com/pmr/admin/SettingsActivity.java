@@ -129,7 +129,7 @@ public class SettingsActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_settings);
-        AppLog.add("SettingsActivity: onCreate (V12.6)");
+        AppLog.add("SettingsActivity: onCreate (V12.7)");
 
         prefs = getSharedPreferences("pmr_prefs", MODE_PRIVATE);
 
@@ -285,18 +285,26 @@ public class SettingsActivity extends AppCompatActivity {
                 .show();
     }
 
-    // V12.6: Проверка обновлений через Releases (избегаем 504 на API)
+    // V12.7: Проверка обновлений с логированием ошибок
     private void checkForUpdates() {
+        AppLog.add("SettingsActivity: Начало проверки обновлений (V12.7)");
         Toast.makeText(this, "Проверка обновлений...", Toast.LENGTH_SHORT).show();
+        
         new Thread(() -> {
             try {
                 URL url = new URL("https://api.github.com/repos/rw6hhl/Admin-PMR-V9/releases/latest");
+                AppLog.add("SettingsActivity: URL запроса — " + url);
+                
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                 conn.setRequestMethod("GET");
                 conn.setRequestProperty("Accept", "application/vnd.github.v3+json");
                 conn.setRequestProperty("User-Agent", "Admin-PMR-App");
+                conn.setConnectTimeout(10000);
+                conn.setReadTimeout(10000);
 
                 int responseCode = conn.getResponseCode();
+                AppLog.add("SettingsActivity: Код ответа сервера — " + responseCode);
+
                 if (responseCode == 200) {
                     BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
                     StringBuilder response = new StringBuilder();
@@ -323,6 +331,8 @@ public class SettingsActivity extends AppCompatActivity {
                         latestVersionCode = Integer.parseInt(tagName.replace("v", ""));
                     } catch (Exception ignored) {}
 
+                    AppLog.add("SettingsActivity: Найден тег — " + tagName + ", Код версии — " + latestVersionCode + ", Текущий код — " + BuildConfig.VERSION_CODE);
+
                     final String finalUrl = downloadUrl;
                     final int finalVersionCode = latestVersionCode;
                     if (downloadUrl != null && latestVersionCode > BuildConfig.VERSION_CODE) {
@@ -331,17 +341,19 @@ public class SettingsActivity extends AppCompatActivity {
                         runOnUiThread(() -> Toast.makeText(this, "У вас последняя версия", Toast.LENGTH_LONG).show());
                     }
                 } else if (responseCode == 504) {
+                    AppLog.add("SettingsActivity: Ошибка 504 — сервер перегружен");
                     runOnUiThread(this::showServerBusyDialog);
                 } else {
+                    AppLog.add("SettingsActivity: Ошибка сервера — " + responseCode);
                     runOnUiThread(() -> Toast.makeText(this, "Ошибка сервера: " + responseCode, Toast.LENGTH_LONG).show());
                 }
             } catch (Exception e) {
+                AppLog.add("SettingsActivity: ИСКЛЮЧЕНИЕ при проверке обновлений — " + e.toString());
                 runOnUiThread(() -> Toast.makeText(this, "Ошибка проверки: " + e.getMessage(), Toast.LENGTH_LONG).show());
             }
         }).start();
     }
 
-    // V12.6: Диалог при ошибке 504
     private void showServerBusyDialog() {
         new AlertDialog.Builder(this)
                 .setTitle("Сервер перегружен (504)")
@@ -367,6 +379,7 @@ public class SettingsActivity extends AppCompatActivity {
     }
 
     private void downloadApkToUri(String downloadUrl, Uri destinationUri) {
+        AppLog.add("SettingsActivity: Начало скачивания — " + downloadUrl);
         Toast.makeText(this, "Скачивание...", Toast.LENGTH_SHORT).show();
         new Thread(() -> {
             try {
@@ -386,11 +399,13 @@ public class SettingsActivity extends AppCompatActivity {
                     output.flush();
                 }
 
+                AppLog.add("SettingsActivity: Скачивание завершено успешно");
                 runOnUiThread(() -> {
                     Toast.makeText(this, "Файл успешно сохранен. Удалите старую версию и установите новую.", Toast.LENGTH_LONG).show();
                 });
 
             } catch (Exception e) {
+                AppLog.add("SettingsActivity: ОШИБКА скачивания — " + e.toString());
                 runOnUiThread(() -> Toast.makeText(this, "Ошибка скачивания: " + e.getMessage(), Toast.LENGTH_LONG).show());
             }
         }).start();
