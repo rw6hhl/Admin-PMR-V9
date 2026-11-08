@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout repository
@@ -35,9 +35,9 @@ jobs:
           echo "android.useAndroidX=true" >> gradle.properties
           echo "android.enableJetifier=true" >> gradle.properties
 
-      # V12.5: Прямой вызов системного Gradle, без скачивания
+      # V12.5: Используем предустановленный Gradle 8.5 из кэша системы (обход Gradle 9.8.2)
       - name: Build Debug APK
-        run: gradle assembleDebug --no-daemon
+        run: /opt/hostedtoolcache/gradle/8.5/x64/bin/gradle assembleDebug --no-daemon
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
