@@ -46,7 +46,7 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
-      # V12.1: Загрузка APK в папку apk/ репозитория
+      # V12.1: Загрузка APK в папку apk/ репозитория (с принудительным добавлением)
       - name: Push APK to repository
         run: |
           mkdir -p apk
@@ -54,6 +54,6 @@ jobs:
           cp app/build/outputs/apk/debug/*.apk apk/
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          git add apk/*.apk
+          git add -f apk/*.apk
           git commit -m "Auto-update APK [skip ci]" || echo "No changes to commit"
           git push
