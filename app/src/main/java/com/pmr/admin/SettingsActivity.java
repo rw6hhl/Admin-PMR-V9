@@ -1,16 +1,11 @@
 package com.pmr.admin;
 
 import android.app.AlertDialog;
-import android.app.DownloadManager;
-import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
 import android.view.View;
 import android.widget.Button;
 import android.widget.CheckBox;
@@ -20,13 +15,11 @@ import android.widget.Toast;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.content.FileProvider;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -46,8 +39,17 @@ public class SettingsActivity extends AppCompatActivity {
     private Button btnChanList, btnLogs, btnLoadList;
     private CheckBox cbVerboseLog, cbSoundEnabled, cbAskPassword, cbPttLatch, cbShowListNames;
     private CheckBox cbSimplex, cbShowPowerButton, cbShowServerIp;
-    
-    private long downloadId = -1;
+
+    // V12.5: Переменная для хранения ссылки на скачивание
+    private String pendingDownloadUrl = null;
+
+    // V12.5: Лаунчер для сохранения файла (открывает проводник)
+    private final ActivityResultLauncher<String> saveApkLauncher =
+            registerForActivityResult(new ActivityResultContracts.CreateDocument("application/vnd.android.package-archive"), uri -> {
+                if (uri != null && pendingDownloadUrl != null) {
+                    downloadApkToUri(pendingDownloadUrl, uri);
+                }
+            });
 
     private final ActivityResultLauncher<String[]> openListLauncher =
             registerForActivityResult(new ActivityResultContracts.OpenDocument(), uri -> {
@@ -87,9 +89,9 @@ public class SettingsActivity extends AppCompatActivity {
                             os.flush();
                         }
                     }
-                    Toast.makeText(this, "Ячейки сохранены в файл", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, "Ячейки сохранены", Toast.LENGTH_SHORT).show();
                 } catch (Exception e) {
-                    Toast.makeText(this, "Ошибка сохранения: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                    Toast.makeText(this, "Ошибка: " + e.getMessage(), Toast.LENGTH_LONG).show();
                 }
             });
 
@@ -121,7 +123,7 @@ public class SettingsActivity extends AppCompatActivity {
                     editor.apply();
                     Toast.makeText(this, "Загружено ячеек: " + count, Toast.LENGTH_SHORT).show();
                 } catch (Exception e) {
-                    Toast.makeText(this, "Ошибка загрузки: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                    Toast.makeText(this, "Ошибка: " + e.getMessage(), Toast.LENGTH_LONG).show();
                 }
             });
 
@@ -129,7 +131,7 @@ public class SettingsActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_settings);
-        AppLog.add("SettingsActivity: onCreate (V12.4)");
+        AppLog.add("SettingsActivity: onCreate (V12.5)");
 
         prefs = getSharedPreferences("pmr_prefs", MODE_PRIVATE);
 
@@ -267,12 +269,11 @@ public class SettingsActivity extends AppCompatActivity {
             btnImport.setOnClickListener(v -> importPresetsLauncher.launch(new String[]{"text/plain", "*/*"}));
         }
 
+        // V12.5: Проверка обновлений
         Button btnCheckUpdate = findViewById(R.id.btnCheckUpdate);
         if (btnCheckUpdate != null) {
             btnCheckUpdate.setOnClickListener(v -> checkForUpdates());
         }
-
-        registerReceiver(onDownloadComplete, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE));
     }
 
     private void showCodecDialog() {
@@ -350,56 +351,49 @@ public class SettingsActivity extends AppCompatActivity {
         }).start();
     }
 
+    // V12.5: Новый диалог с предупреждением
     private void showUpdateDialog(String versionName, String downloadUrl) {
+        pendingDownloadUrl = downloadUrl;
         new AlertDialog.Builder(this)
                 .setTitle("Доступно обновление")
-                .setMessage("Найдена новая версия: v" + versionName + "\nТекущая версия: v" + BuildConfig.VERSION_NAME + "\n\nСкачать?")
-                .setPositiveButton("Скачать", (dialog, which) -> downloadAndInstallApk(downloadUrl))
+                .setMessage("Найдена новая версия: v" + versionName + "\n\nВНИМАНИЕ: Для установки новой версии необходимо удалить старую!\n\nНажмите «ОК», чтобы выбрать папку для сохранения файла.")
+                .setPositiveButton("ОК", (dialog, which) -> {
+                    // Открываем проводник для выбора папки
+                    saveApkLauncher.launch("app-v" + versionName + ".apk");
+                })
                 .setNegativeButton("Отмена", null)
                 .show();
     }
 
-    private void downloadAndInstallApk(String downloadUrl) {
-        DownloadManager.Request request = new DownloadManager.Request(Uri.parse(downloadUrl));
-        request.setTitle("Admin PMR Update");
-        request.setDescription("Скачивание новой версии...");
-        request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-        
-        // V12.4: Сохраняем в общую папку Download (Загрузки)
-        request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "app-v" + BuildConfig.VERSION_NAME + "-update.apk");
+    // V12.5: Скачивание по выбранному Uri
+    private void downloadApkToUri(String downloadUrl, Uri destinationUri) {
+        Toast.makeText(this, "Скачивание...", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            try {
+                URL url = new URL(downloadUrl);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.connect();
 
-        DownloadManager manager = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-        if (manager != null) {
-            downloadId = manager.enqueue(request);
-            Toast.makeText(this, "Загрузка началась в папку Загрузки", Toast.LENGTH_SHORT).show();
-        }
-    }
+                try (InputStream input = conn.getInputStream();
+                     OutputStream output = getContentResolver().openOutputStream(destinationUri)) {
+                    if (output == null) throw new IOException("Не удалось открыть файл для записи");
 
-    private final BroadcastReceiver onDownloadComplete = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            long id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
-            if (id == downloadId) {
-                // V12.4: Файл скачан в общую папку. Предлагаем установить.
-                File file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "app-v" + BuildConfig.VERSION_NAME + "-update.apk");
-                if (file.exists()) {
-                    Uri apkUri = FileProvider.getUriForFile(SettingsActivity.this, "com.pmr.admin.fileprovider", file);
-                    Intent installIntent = new Intent(Intent.ACTION_VIEW);
-                    installIntent.setDataAndType(apkUri, "application/vnd.android.package-archive");
-                    installIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                    installIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    startActivity(installIntent);
+                    byte[] buffer = new byte[4096];
+                    int bytesRead;
+                    while ((bytesRead = input.read(buffer)) != -1) {
+                        output.write(buffer, 0, bytesRead);
+                    }
+                    output.flush();
                 }
-            }
-        }
-    };
 
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        try {
-            unregisterReceiver(onDownloadComplete);
-        } catch (Exception ignored) {}
+                runOnUiThread(() -> {
+                    Toast.makeText(this, "Файл успешно сохранен. Удалите старую версию и установите новую.", Toast.LENGTH_LONG).show();
+                });
+
+            } catch (Exception e) {
+                runOnUiThread(() -> Toast.makeText(this, "Ошибка скачивания: " + e.getMessage(), Toast.LENGTH_LONG).show());
+            }
+        }).start();
     }
 
     private void saveSettings() {
