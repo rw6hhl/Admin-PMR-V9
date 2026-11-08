@@ -207,7 +207,6 @@
                 android:checked="false"
                 android:layout_marginBottom="16dp" />
 
-            <!-- V11.0: показ IP сервера на главном экране -->
             <CheckBox
                 android:id="@+id/cbShowServerIp"
                 android:layout_width="match_parent"
@@ -364,7 +363,16 @@
             android:text="Описание работы программы"
             android:textColor="@color/colorButton" />
 
-        <!-- V11.1: Экспорт/Импорт настроек ячеек -->
+        <!-- V12.1: Кнопка проверки обновлений -->
+        <Button
+            android:id="@+id/btnCheckUpdate"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:background="@drawable/roundshapebtn"
+            android:text="ПРОВЕРИТЬ ОБНОВЛЕНИЯ"
+            android:textColor="@color/colorButton" />
+
         <Button
             android:id="@+id/btnExportPresets"
             android:layout_width="match_parent"

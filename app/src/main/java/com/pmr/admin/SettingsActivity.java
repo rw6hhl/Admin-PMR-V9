@@ -1,10 +1,16 @@
 package com.pmr.admin;
 
 import android.app.AlertDialog;
+import android.app.DownloadManager;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.view.View;
 import android.widget.Button;
 import android.widget.CheckBox;
@@ -14,14 +20,19 @@ import android.widget.Toast;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.FileProvider;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
 
@@ -35,6 +46,8 @@ public class SettingsActivity extends AppCompatActivity {
     private Button btnChanList, btnLogs, btnLoadList;
     private CheckBox cbVerboseLog, cbSoundEnabled, cbAskPassword, cbPttLatch, cbShowListNames;
     private CheckBox cbSimplex, cbShowPowerButton, cbShowServerIp;
+    
+    private long downloadId = -1;
 
     private final ActivityResultLauncher<String[]> openListLauncher =
             registerForActivityResult(new ActivityResultContracts.OpenDocument(), uri -> {
@@ -50,7 +63,6 @@ public class SettingsActivity extends AppCompatActivity {
                 }
             });
 
-    // V11.1: Экспорт параметров ячеек
     private final ActivityResultLauncher<String> exportPresetsLauncher =
             registerForActivityResult(new ActivityResultContracts.CreateDocument("text/plain"), uri -> {
                 if (uri == null) return;
@@ -76,14 +88,11 @@ public class SettingsActivity extends AppCompatActivity {
                         }
                     }
                     Toast.makeText(this, "Ячейки сохранены в файл", Toast.LENGTH_SHORT).show();
-                    AppLog.add("SettingsActivity: Экспорт ячеек успешен — " + uri);
                 } catch (Exception e) {
                     Toast.makeText(this, "Ошибка сохранения: " + e.getMessage(), Toast.LENGTH_LONG).show();
-                    AppLog.add("SettingsActivity: Ошибка экспорта ячеек — " + e.getMessage());
                 }
             });
 
-    // V11.1: Импорт параметров ячеек
     private final ActivityResultLauncher<String[]> importPresetsLauncher =
             registerForActivityResult(new ActivityResultContracts.OpenDocument(), uri -> {
                 if (uri == null) return;
@@ -99,7 +108,7 @@ public class SettingsActivity extends AppCompatActivity {
                     Iterator<String> keys = json.keys();
                     int count = 0;
                     while (keys.hasNext()) {
-                        String key = keys.next(); // "1".."5"
+                        String key = keys.next();
                         JSONObject preset = json.getJSONObject(key);
                         editor.putInt("preset_channel_" + key, preset.optInt("channel"));
                         editor.putString("preset_index_" + key, preset.optString("index"));
@@ -111,10 +120,8 @@ public class SettingsActivity extends AppCompatActivity {
                     }
                     editor.apply();
                     Toast.makeText(this, "Загружено ячеек: " + count, Toast.LENGTH_SHORT).show();
-                    AppLog.add("SettingsActivity: Импорт ячеек успешен — " + count);
                 } catch (Exception e) {
                     Toast.makeText(this, "Ошибка загрузки: " + e.getMessage(), Toast.LENGTH_LONG).show();
-                    AppLog.add("SettingsActivity: Ошибка импорта ячеек — " + e.getMessage());
                 }
             });
 
@@ -122,7 +129,7 @@ public class SettingsActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_settings);
-        AppLog.add("SettingsActivity: onCreate (V11.1)");
+        AppLog.add("SettingsActivity: onCreate (V12.1)");
 
         prefs = getSharedPreferences("pmr_prefs", MODE_PRIVATE);
 
@@ -165,39 +172,27 @@ public class SettingsActivity extends AppCompatActivity {
 
         if (cbPttLatch != null) {
             cbPttLatch.setChecked(prefs.getBoolean("ptt_latch_enabled", false));
-            cbPttLatch.setOnCheckedChangeListener((b, checked) -> {
-                prefs.edit().putBoolean("ptt_latch_enabled", checked).apply();
-            });
+            cbPttLatch.setOnCheckedChangeListener((b, checked) -> prefs.edit().putBoolean("ptt_latch_enabled", checked).apply());
         }
         if (cbShowListNames != null) {
             cbShowListNames.setChecked(prefs.getBoolean("show_list_names", false));
-            cbShowListNames.setOnCheckedChangeListener((b, checked) -> {
-                prefs.edit().putBoolean("show_list_names", checked).apply();
-            });
+            cbShowListNames.setOnCheckedChangeListener((b, checked) -> prefs.edit().putBoolean("show_list_names", checked).apply());
         }
         if (cbAskPassword != null) {
             cbAskPassword.setChecked(prefs.getBoolean("ask_password", false));
-            cbAskPassword.setOnCheckedChangeListener((b, checked) -> {
-                prefs.edit().putBoolean("ask_password", checked).apply();
-            });
+            cbAskPassword.setOnCheckedChangeListener((b, checked) -> prefs.edit().putBoolean("ask_password", checked).apply());
         }
         if (cbSimplex != null) {
             cbSimplex.setChecked(prefs.getBoolean("simplex", false));
-            cbSimplex.setOnCheckedChangeListener((b, checked) -> {
-                prefs.edit().putBoolean("simplex", checked).apply();
-            });
+            cbSimplex.setOnCheckedChangeListener((b, checked) -> prefs.edit().putBoolean("simplex", checked).apply());
         }
         if (cbShowPowerButton != null) {
             cbShowPowerButton.setChecked(prefs.getBoolean("show_power_button", false));
-            cbShowPowerButton.setOnCheckedChangeListener((b, checked) -> {
-                prefs.edit().putBoolean("show_power_button", checked).apply();
-            });
+            cbShowPowerButton.setOnCheckedChangeListener((b, checked) -> prefs.edit().putBoolean("show_power_button", checked).apply());
         }
         if (cbShowServerIp != null) {
             cbShowServerIp.setChecked(prefs.getBoolean("show_server_ip", false));
-            cbShowServerIp.setOnCheckedChangeListener((b, checked) -> {
-                prefs.edit().putBoolean("show_server_ip", checked).apply();
-            });
+            cbShowServerIp.setOnCheckedChangeListener((b, checked) -> prefs.edit().putBoolean("show_server_ip", checked).apply());
         }
         if (cbVerboseLog != null) {
             cbVerboseLog.setChecked(prefs.getBoolean("verbose_log", false));
@@ -208,9 +203,7 @@ public class SettingsActivity extends AppCompatActivity {
         }
         if (cbSoundEnabled != null) {
             cbSoundEnabled.setChecked(prefs.getBoolean("sound_enabled", false));
-            cbSoundEnabled.setOnCheckedChangeListener((b, checked) -> {
-                prefs.edit().putBoolean("sound_enabled", checked).apply();
-            });
+            cbSoundEnabled.setOnCheckedChangeListener((b, checked) -> prefs.edit().putBoolean("sound_enabled", checked).apply());
         }
 
         boolean isAdmin = prefs.getBoolean("is_admin_mode", false);
@@ -226,50 +219,26 @@ public class SettingsActivity extends AppCompatActivity {
             if (cbAskPassword != null) cbAskPassword.setVisibility(View.GONE);
         }
 
-        findViewById(R.id.btnToggleServer).setOnClickListener(v -> {
-            layoutServerSettings.setVisibility(layoutServerSettings.getVisibility() == View.GONE ? View.VISIBLE : View.GONE);
-        });
-
-        findViewById(R.id.btnToggleParams).setOnClickListener(v -> {
-            layoutParamsSettings.setVisibility(layoutParamsSettings.getVisibility() == View.GONE ? View.VISIBLE : View.GONE);
-        });
-
+        findViewById(R.id.btnToggleServer).setOnClickListener(v -> layoutServerSettings.setVisibility(layoutServerSettings.getVisibility() == View.GONE ? View.VISIBLE : View.GONE));
+        findViewById(R.id.btnToggleParams).setOnClickListener(v -> layoutParamsSettings.setVisibility(layoutParamsSettings.getVisibility() == View.GONE ? View.VISIBLE : View.GONE));
         findViewById(R.id.btnCodecDialog).setOnClickListener(v -> showCodecDialog());
 
-        btnChanList.setOnClickListener(v -> {
-            try {
-                startActivity(new Intent(this, ChanListActivity.class));
-            } catch (Exception ignored) {}
-        });
+        btnChanList.setOnClickListener(v -> startActivity(new Intent(this, ChanListActivity.class)));
         btnLogs.setOnClickListener(v -> startActivity(new Intent(this, LogActivity.class)));
-
         if (btnLoadList != null) {
-            btnLoadList.setOnClickListener(v -> {
-                try {
-                    openListLauncher.launch(new String[]{"*/*"});
-                } catch (Exception e) {
-                    Toast.makeText(this, "Нет файлового менеджера", Toast.LENGTH_LONG).show();
-                }
-            });
+            btnLoadList.setOnClickListener(v -> openListLauncher.launch(new String[]{"*/*"}));
         }
 
         findViewById(R.id.btnSaveSettings).setOnClickListener(v -> saveSettings());
 
         Button btnShareProgram = findViewById(R.id.btnShareProgram);
         Button btnShowDescription = findViewById(R.id.btnShowDescription);
-
         if (btnShareProgram != null) {
             btnShareProgram.setOnClickListener(v -> {
                 String url = "https://www.cqham.ru/forum/showthread.php/41895-Хочу-поделиться-программой/page9";
-                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-                try {
-                    startActivity(intent);
-                } catch (Exception e) {
-                    Toast.makeText(this, "Не удалось открыть ссылку", Toast.LENGTH_SHORT).show();
-                }
+                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
             });
         }
-
         if (btnShowDescription != null) {
             btnShowDescription.setOnClickListener(v -> {
                 StringBuilder sb = new StringBuilder();
@@ -288,29 +257,23 @@ public class SettingsActivity extends AppCompatActivity {
             });
         }
 
-        // V11.1: Экспорт ячеек
         Button btnExport = findViewById(R.id.btnExportPresets);
         if (btnExport != null) {
-            btnExport.setOnClickListener(v -> {
-                try {
-                    exportPresetsLauncher.launch("presets_backup.txt");
-                } catch (Exception e) {
-                    Toast.makeText(this, "Нет файлового менеджера", Toast.LENGTH_LONG).show();
-                }
-            });
+            btnExport.setOnClickListener(v -> exportPresetsLauncher.launch("presets_backup.txt"));
         }
 
-        // V11.1: Импорт ячеек
         Button btnImport = findViewById(R.id.btnImportPresets);
         if (btnImport != null) {
-            btnImport.setOnClickListener(v -> {
-                try {
-                    importPresetsLauncher.launch(new String[]{"text/plain", "*/*"});
-                } catch (Exception e) {
-                    Toast.makeText(this, "Нет файлового менеджера", Toast.LENGTH_LONG).show();
-                }
-            });
+            btnImport.setOnClickListener(v -> importPresetsLauncher.launch(new String[]{"text/plain", "*/*"}));
         }
+
+        // V12.1: Проверка обновлений
+        Button btnCheckUpdate = findViewById(R.id.btnCheckUpdate);
+        if (btnCheckUpdate != null) {
+            btnCheckUpdate.setOnClickListener(v -> checkForUpdates());
+        }
+
+        registerReceiver(onDownloadComplete, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE));
     }
 
     private void showCodecDialog() {
@@ -323,6 +286,120 @@ public class SettingsActivity extends AppCompatActivity {
                     dialog.dismiss();
                 })
                 .show();
+    }
+
+    // V12.1: Логика проверки обновлений через GitHub API
+    private void checkForUpdates() {
+        Toast.makeText(this, "Проверка обновлений...", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            try {
+                URL url = new URL("https://api.github.com/repos/rw6hhl/Admin-PMR-V9/contents/apk");
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("GET");
+                conn.setRequestProperty("Accept", "application/vnd.github.v3+json");
+                conn.setRequestProperty("User-Agent", "Admin-PMR-App");
+
+                int responseCode = conn.getResponseCode();
+                if (responseCode == 200) {
+                    BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+                    StringBuilder response = new StringBuilder();
+                    String line;
+                    while ((line = in.readLine()) != null) response.append(line);
+                    in.close();
+
+                    JSONArray jsonArray = new JSONArray(response.toString());
+                    String latestApkUrl = null;
+                    String latestVersionName = "";
+                    int maxVersionCode = 0;
+
+                    for (int i = 0; i < jsonArray.length(); i++) {
+                        JSONObject fileObj = jsonArray.getJSONObject(i);
+                        String fileName = fileObj.getString("name");
+                        if (fileName.startsWith("app-v") && fileName.endsWith(".apk")) {
+                            try {
+                                // Извлекаем версию из имени файла app-v12.1.apk -> 12.1
+                                String versionStr = fileName.substring(5, fileName.length() - 4);
+                                int versionCode = 0;
+                                String[] parts = versionStr.split("\\.");
+                                if (parts.length == 2) {
+                                    versionCode = Integer.parseInt(parts[0]) * 100 + Integer.parseInt(parts[1]);
+                                } else if (parts.length == 1) {
+                                    versionCode = Integer.parseInt(parts[0]) * 100;
+                                }
+
+                                if (versionCode > maxVersionCode) {
+                                    maxVersionCode = versionCode;
+                                    latestVersionName = versionStr;
+                                    latestApkUrl = fileObj.getString("download_url");
+                                }
+                            } catch (Exception ignored) {}
+                        }
+                    }
+
+                    int currentVersionCode = BuildConfig.VERSION_CODE;
+                    if (maxVersionCode > currentVersionCode && latestApkUrl != null) {
+                        final String finalLatestVersionName = latestVersionName;
+                        final String finalLatestApkUrl = latestApkUrl;
+                        runOnUiThread(() -> showUpdateDialog(finalLatestVersionName, finalLatestApkUrl));
+                    } else {
+                        runOnUiThread(() -> Toast.makeText(this, "У вас последняя версия (" + BuildConfig.VERSION_NAME + ")", Toast.LENGTH_LONG).show());
+                    }
+                } else {
+                    runOnUiThread(() -> Toast.makeText(this, "Ошибка сервера: " + responseCode, Toast.LENGTH_LONG).show());
+                }
+            } catch (Exception e) {
+                runOnUiThread(() -> Toast.makeText(this, "Ошибка проверки: " + e.getMessage(), Toast.LENGTH_LONG).show());
+            }
+        }).start();
+    }
+
+    private void showUpdateDialog(String versionName, String downloadUrl) {
+        new AlertDialog.Builder(this)
+                .setTitle("Доступно обновление")
+                .setMessage("Найдена новая версия: v" + versionName + "\nТекущая версия: v" + BuildConfig.VERSION_NAME + "\n\nСкачать и установить?")
+                .setPositiveButton("Скачать", (dialog, which) -> downloadAndInstallApk(downloadUrl))
+                .setNegativeButton("Отмена", null)
+                .show();
+    }
+
+    private void downloadAndInstallApk(String downloadUrl) {
+        DownloadManager.Request request = new DownloadManager.Request(Uri.parse(downloadUrl));
+        request.setTitle("Admin PMR Update");
+        request.setDescription("Скачивание новой версии...");
+        request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+        request.setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, "update.apk");
+
+        DownloadManager manager = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+        if (manager != null) {
+            downloadId = manager.enqueue(request);
+            Toast.makeText(this, "Загрузка началась...", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private final BroadcastReceiver onDownloadComplete = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            long id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
+            if (id == downloadId) {
+                File file = new File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "update.apk");
+                if (file.exists()) {
+                    Uri apkUri = FileProvider.getUriForFile(SettingsActivity.this, "com.pmr.admin.fileprovider", file);
+                    Intent installIntent = new Intent(Intent.ACTION_VIEW);
+                    installIntent.setDataAndType(apkUri, "application/vnd.android.package-archive");
+                    installIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    installIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(installIntent);
+                }
+            }
+        }
+    };
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        try {
+            unregisterReceiver(onDownloadComplete);
+        } catch (Exception ignored) {}
     }
 
     private void saveSettings() {
@@ -348,19 +425,9 @@ public class SettingsActivity extends AppCompatActivity {
 
         editor.apply();
 
-        AppLog.add("SettingsActivity: saveSettings — mail=" + editMailIndex.getText()
-                + ", mic=" + cbUsilMic.isChecked() + "/" + editUsilMic.getText()
-                + ", agc=" + cbAgc.isChecked()
-                + ", din=" + cbUsilDin.isChecked() + "/" + editUsilDin.getText()
-                + ", ptt_latch=" + (cbPttLatch != null ? cbPttLatch.isChecked() : "n/a")
-                + ", simplex=" + (cbSimplex != null ? cbSimplex.isChecked() : "n/a")
-                + ", show_server_ip=" + (cbShowServerIp != null ? cbShowServerIp.isChecked() : "n/a"));
-
         if (PmrService.pmrSocket != null) {
             PmrService.pmrSocket.recreateSocket(this);
-            if (PmrService.audioEngine != null) {
-                PmrService.audioEngine.applyGain();
-            }
+            if (PmrService.audioEngine != null) PmrService.audioEngine.applyGain();
         }
         finish();
     }
