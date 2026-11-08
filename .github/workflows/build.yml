@@ -36,17 +36,17 @@ jobs:
           echo "android.enableJetifier=true" >> gradle.properties
           echo "android.suppressUnsupportedCompileSdk=35" >> gradle.properties
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
+      # V12.3: Используем официальное действие Gradle вместо ./gradlew
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
 
-      # V12.3: Сборка Release APK с использованием подписи
       - name: Build Release APK
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew assembleRelease --no-daemon
+        run: gradle assembleRelease --no-daemon
 
       - name: Upload Release APK Artifact
         uses: actions/upload-artifact@v4
@@ -55,7 +55,6 @@ jobs:
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
 
-      # V12.3: Загрузка APK в папку apk/ репозитория
       - name: Push APK to repository
         run: |
           mkdir -p apk
