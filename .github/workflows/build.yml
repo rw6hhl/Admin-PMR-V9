@@ -5,6 +5,10 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+# V12.1: Явное разрешение на запись для загрузки APK
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -46,7 +50,7 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
-      # V12.1: Загрузка APK в папку apk/ репозитория (с принудительным добавлением)
+      # V12.1: Загрузка APK в папку apk/ репозитория
       - name: Push APK to repository
         run: |
           mkdir -p apk
