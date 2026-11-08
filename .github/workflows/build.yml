@@ -36,9 +36,11 @@ jobs:
           echo "android.enableJetifier=true" >> gradle.properties
           echo "android.suppressUnsupportedCompileSdk=35" >> gradle.properties
 
-      # V12.3: Используем официальное действие Gradle вместо ./gradlew
+      # V12.3: Принудительно используем Gradle 8.2 для совместимости с AGP 8.2.2
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: 8.2
 
       - name: Build Release APK
         env:
