@@ -4,32 +4,16 @@ plugins {
 
 android {
     namespace 'com.pmr.admin'
-    compileSdk 35
+    compileSdk 34
 
     defaultConfig {
         applicationId "com.pmr.admin"
         minSdk 26
-        targetSdk 35
-        versionCode 1203
-        versionName "12.3"
+        targetSdk 34
+        versionCode 1204
+        versionName "12.4"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-    }
-
-    // V12.3: Настройка подписи из переменных окружения (для GitHub Actions)
-    signingConfigs {
-        release {
-            if (System.getenv("KEYSTORE_BASE64") != null) {
-                def keystoreFile = file("${rootDir}/keystore.jks")
-                if (!keystoreFile.exists()) {
-                    keystoreFile.withOutputStream { it.write(Base64.getDecoder().decode(System.getenv("KEYSTORE_BASE64"))) }
-                }
-                storeFile keystoreFile
-                storePassword System.getenv("KEYSTORE_PASSWORD")
-                keyAlias System.getenv("KEY_ALIAS")
-                keyPassword System.getenv("KEY_PASSWORD")
-            }
-        }
     }
 
     android.applicationVariants.all { variant ->
@@ -42,16 +26,6 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            // V12.3: Использовать подпись release, если она настроена
-            if (System.getenv("KEYSTORE_BASE64") != null) {
-                signingConfig signingConfigs.release
-            }
-        }
-        debug {
-            // V12.3: Для тестов используем ту же подпись, чтобы не было конфликтов
-            if (System.getenv("KEYSTORE_BASE64") != null) {
-                signingConfig signingConfigs.release
-            }
         }
     }
     compileOptions {

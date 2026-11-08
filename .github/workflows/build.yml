@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
@@ -25,7 +25,7 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
 
       - name: Accept Android SDK licenses
         run: yes | sdkmanager --licenses || true
@@ -34,29 +34,25 @@ jobs:
         run: |
           echo "android.useAndroidX=true" >> gradle.properties
           echo "android.enableJetifier=true" >> gradle.properties
-          echo "android.suppressUnsupportedCompileSdk=35" >> gradle.properties
 
-      - name: Build Release APK
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        # V12.3: Используем встроенный Gradle в образе ubuntu-22.04
-        run: gradle assembleRelease --no-daemon
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
 
-      - name: Upload Release APK Artifact
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-release
-          path: app/build/outputs/apk/release/*.apk
+          name: app-debug
+          path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
       - name: Push APK to repository
         run: |
           mkdir -p apk
           rm -f apk/*.apk
-          cp app/build/outputs/apk/release/*.apk apk/
+          cp app/build/outputs/apk/debug/*.apk apk/
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           git add -f apk/*.apk

@@ -129,7 +129,7 @@ public class SettingsActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_settings);
-        AppLog.add("SettingsActivity: onCreate (V12.1)");
+        AppLog.add("SettingsActivity: onCreate (V12.4)");
 
         prefs = getSharedPreferences("pmr_prefs", MODE_PRIVATE);
 
@@ -267,7 +267,6 @@ public class SettingsActivity extends AppCompatActivity {
             btnImport.setOnClickListener(v -> importPresetsLauncher.launch(new String[]{"text/plain", "*/*"}));
         }
 
-        // V12.1: Проверка обновлений
         Button btnCheckUpdate = findViewById(R.id.btnCheckUpdate);
         if (btnCheckUpdate != null) {
             btnCheckUpdate.setOnClickListener(v -> checkForUpdates());
@@ -288,7 +287,6 @@ public class SettingsActivity extends AppCompatActivity {
                 .show();
     }
 
-    // V12.1: Логика проверки обновлений через GitHub API
     private void checkForUpdates() {
         Toast.makeText(this, "Проверка обновлений...", Toast.LENGTH_SHORT).show();
         new Thread(() -> {
@@ -317,7 +315,6 @@ public class SettingsActivity extends AppCompatActivity {
                         String fileName = fileObj.getString("name");
                         if (fileName.startsWith("app-v") && fileName.endsWith(".apk")) {
                             try {
-                                // Извлекаем версию из имени файла app-v12.1.apk -> 12.1
                                 String versionStr = fileName.substring(5, fileName.length() - 4);
                                 int versionCode = 0;
                                 String[] parts = versionStr.split("\\.");
@@ -356,7 +353,7 @@ public class SettingsActivity extends AppCompatActivity {
     private void showUpdateDialog(String versionName, String downloadUrl) {
         new AlertDialog.Builder(this)
                 .setTitle("Доступно обновление")
-                .setMessage("Найдена новая версия: v" + versionName + "\nТекущая версия: v" + BuildConfig.VERSION_NAME + "\n\nСкачать и установить?")
+                .setMessage("Найдена новая версия: v" + versionName + "\nТекущая версия: v" + BuildConfig.VERSION_NAME + "\n\nСкачать?")
                 .setPositiveButton("Скачать", (dialog, which) -> downloadAndInstallApk(downloadUrl))
                 .setNegativeButton("Отмена", null)
                 .show();
@@ -367,12 +364,14 @@ public class SettingsActivity extends AppCompatActivity {
         request.setTitle("Admin PMR Update");
         request.setDescription("Скачивание новой версии...");
         request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-        request.setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, "update.apk");
+        
+        // V12.4: Сохраняем в общую папку Download (Загрузки)
+        request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "app-v" + BuildConfig.VERSION_NAME + "-update.apk");
 
         DownloadManager manager = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
         if (manager != null) {
             downloadId = manager.enqueue(request);
-            Toast.makeText(this, "Загрузка началась...", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Загрузка началась в папку Загрузки", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -381,7 +380,8 @@ public class SettingsActivity extends AppCompatActivity {
         public void onReceive(Context context, Intent intent) {
             long id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
             if (id == downloadId) {
-                File file = new File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "update.apk");
+                // V12.4: Файл скачан в общую папку. Предлагаем установить.
+                File file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "app-v" + BuildConfig.VERSION_NAME + "-update.apk");
                 if (file.exists()) {
                     Uri apkUri = FileProvider.getUriForFile(SettingsActivity.this, "com.pmr.admin.fileprovider", file);
                     Intent installIntent = new Intent(Intent.ACTION_VIEW);
