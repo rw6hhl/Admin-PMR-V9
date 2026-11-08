@@ -35,7 +35,6 @@ jobs:
           echo "android.useAndroidX=true" >> gradle.properties
           echo "android.enableJetifier=true" >> gradle.properties
 
-      # V12.5: Принудительно ставим Gradle 8.5 через официальное действие
       - name: Setup Gradle 8.5
         uses: gradle/actions/setup-gradle@v3
         with:
@@ -51,6 +50,19 @@ jobs:
           name: app-debug
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+      # V12.6: Автоматическое создание Release с APK
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: Release v${{ github.run_number }}
+          draft: false
+          prerelease: false
+          files: app/build/outputs/apk/debug/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Push APK to repository
         run: |
