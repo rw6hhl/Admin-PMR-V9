@@ -29,6 +29,8 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
 
+import javax.net.ssl.HttpsURLConnection;
+
 public class SettingsActivity extends AppCompatActivity {
 
     private SharedPreferences prefs;
@@ -285,22 +287,27 @@ public class SettingsActivity extends AppCompatActivity {
                 .show();
     }
 
-    // V12.7: Проверка обновлений с логированием ошибок
+    // V12.7: Проверка обновлений с прямым IP-адресом для обхода сбоев DNS
     private void checkForUpdates() {
         AppLog.add("SettingsActivity: Начало проверки обновлений (V12.7)");
         Toast.makeText(this, "Проверка обновлений...", Toast.LENGTH_SHORT).show();
         
         new Thread(() -> {
             try {
-                URL url = new URL("https://api.github.com/repos/rw6hhl/Admin-PMR-V9/releases/latest");
+                // Используем прямой IP-адрес GitHub API
+                URL url = new URL("https://140.82.121.6/repos/rw6hhl/Admin-PMR-V9/releases/latest");
                 AppLog.add("SettingsActivity: URL запроса — " + url);
                 
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                 conn.setRequestMethod("GET");
+                conn.setRequestProperty("Host", "api.github.com"); // Указываем хост
                 conn.setRequestProperty("Accept", "application/vnd.github.v3+json");
                 conn.setRequestProperty("User-Agent", "Admin-PMR-App");
                 conn.setConnectTimeout(10000);
                 conn.setReadTimeout(10000);
+
+                // Игнорируем проверку сертификата для прямого IP
+                HttpsURLConnection.setDefaultHostnameVerifier((hostname, session) -> true);
 
                 int responseCode = conn.getResponseCode();
                 AppLog.add("SettingsActivity: Код ответа сервера — " + responseCode);
