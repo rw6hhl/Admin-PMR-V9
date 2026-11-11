@@ -12,11 +12,13 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.media.AudioManager;
 import android.media.ToneGenerator;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.provider.Settings;
 import android.text.InputType;
 import android.view.GestureDetector;
 import android.view.MotionEvent;
@@ -35,6 +37,8 @@ import androidx.core.content.ContextCompat;
 
 public class MainActivity extends AppCompatActivity {
     private static final int REQ_MIC = 101;
+    private static final int REQ_NOTIF = 102;
+    private static final int REQ_INSTALL = 103;
     private static final int PTT_LATCH_BLINK_PERIOD_MS = 500;
     private static final int PTT_TAP_MAX_MS = 150;
     private static final int PTT_DOUBLE_TAP_TIMEOUT_MS = 300;
@@ -43,8 +47,6 @@ public class MainActivity extends AppCompatActivity {
     private static final int PRESET_HIGHLIGHT_COLOR = 0xFFFF9800;
     private static final float PRESET_CORNER_RADIUS_DP = 8f;
     private static final float PRESET_STROKE_WIDTH_DP = 2.5f;
-
-    // V11.8: Задержка сканирования
     private static final int SCAN_DELAY_MS = 500;
 
     private SharedPreferences prefs;
@@ -52,6 +54,10 @@ public class MainActivity extends AppCompatActivity {
     private TextView tvServerIp;
     private ImageView imgRed, imgGreen, btnPower;
     private Button btnMenu, btnUp, btnDown, btnSave1, btnSave2, btnSave3, btnSave4, btnSave5, btnCallOrList, btnPTT, btnSecretMode;
+    
+    // V12.9: Дополнительные кнопки PTT
+    private View btnPttLeft, btnPttRight;
+
     private boolean isAdminMode = false;
     private PowerManager.WakeLock wakeLock;
     private int currentChannel = 4;
@@ -73,9 +79,8 @@ public class MainActivity extends AppCompatActivity {
     private int activePreset = 0;
     private Button[] presetButtons;
 
-    // V11.8: Переменные сканирования
     private boolean isScanning = false;
-    private int scanMode = 0; // 0 = ячейки, 1 = каналы внутри ячейки
+    private int scanMode = 0;
     private int scanIndex = 1;
     private int scanTargetPreset = 1;
     private final Handler scanHandler = new Handler(Looper.getMainLooper());
@@ -209,7 +214,7 @@ public class MainActivity extends AppCompatActivity {
         pttLatchEnabled = prefs.getBoolean("ptt_latch_enabled", true);
         showListNames = prefs.getBoolean("show_list_names", false);
 
-        requestPermissions();
+        checkAndRequestPermissions();
 
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
@@ -232,7 +237,28 @@ public class MainActivity extends AppCompatActivity {
         if (!PmrService.isRunning) {
             try {
                 startService(new Intent(this, PmrService.class));
-            } catch (Exception ignored) {}
+            } catch (Exception e) {
+                Toast.makeText(this, "Ошибка запуска службы: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                AppLog.add("MainActivity: ОШИБКА startService — " + e.getMessage());
+            }
+        }
+    }
+
+    private void checkAndRequestPermissions() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIF);
+            }
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.RECORD_AUDIO}, REQ_MIC);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (!getPackageManager().canRequestPackageInstalls()) {
+                Intent intent = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES);
+                intent.setData(Uri.parse("package:" + getPackageName()));
+                startActivityForResult(intent, REQ_INSTALL);
+            }
         }
     }
 
@@ -241,18 +267,6 @@ public class MainActivity extends AppCompatActivity {
         try {
             toneGen.startTone(ToneGenerator.TONE_PROP_BEEP, 100);
         } catch (Exception ignored) {}
-    }
-
-    // V12.0: Запрос разрешений для микрофона и уведомлений (Android 13+)
-    private void requestPermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.POST_NOTIFICATIONS}, 102);
-            }
-        }
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.RECORD_AUDIO}, REQ_MIC);
-        }
     }
 
     @Override
@@ -283,6 +297,10 @@ public class MainActivity extends AppCompatActivity {
         btnSave5 = findViewById(R.id.buttonsave5);
         btnPTT = findViewById(R.id.btnPTT);
         btnSecretMode = findViewById(R.id.btnSecretMode);
+        
+        // V12.9: Дополнительные кнопки PTT
+        btnPttLeft = findViewById(R.id.btnPttLeft);
+        btnPttRight = findViewById(R.id.btnPttRight);
 
         presetButtons = new Button[]{btnSave1, btnSave2, btnSave3, btnSave4, btnSave5};
     }
@@ -381,78 +399,85 @@ public class MainActivity extends AppCompatActivity {
         btnSave4.setOnLongClickListener(v -> { beep(); savePreset(4); return true; });
         btnSave5.setOnLongClickListener(v -> { beep(); savePreset(5); return true; });
 
-        btnPTT.setOnTouchListener((v, event) -> {
-            switch (event.getActionMasked()) {
-                case MotionEvent.ACTION_DOWN:
-                    pttDownTime = System.currentTimeMillis();
+        // V12.9: Привязка обработчика к трем зонам PTT
+        View.OnTouchListener pttTouchListener = this::handlePttTouch;
+        btnPTT.setOnTouchListener(pttTouchListener);
+        btnPttLeft.setOnTouchListener(pttTouchListener);
+        btnPttRight.setOnTouchListener(pttTouchListener);
+    }
+
+    // V12.9: Общий метод для обработки касаний всех кнопок PTT
+    private boolean handlePttTouch(View v, MotionEvent event) {
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                pttDownTime = System.currentTimeMillis();
+                pttHoldActive = false;
+                if (isScanning) stopScanning();
+                if (!PmrService.isRunning) {
+                    Toast.makeText(this, "Включите программу", Toast.LENGTH_SHORT).show();
+                    return true;
+                }
+                return true;
+
+            case MotionEvent.ACTION_MOVE:
+                if (!PmrService.isRunning) return true;
+                if (!pttHoldActive && !pttLatched) {
+                    long dt = System.currentTimeMillis() - pttDownTime;
+                    if (dt >= PTT_TAP_MAX_MS) {
+                        cancelTapWaiting();
+                        pttHoldActive = true;
+                        beep();
+                        imgRed.setVisibility(View.VISIBLE);
+                        sendBroadcast(new Intent("PMR_START_RECORDING"));
+                    }
+                }
+                return true;
+
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                long duration = System.currentTimeMillis() - pttDownTime;
+                boolean isCancel = event.getActionMasked() == MotionEvent.ACTION_CANCEL;
+
+                if (!PmrService.isRunning) {
                     pttHoldActive = false;
-                    if (isScanning) stopScanning();
-                    if (!PmrService.isRunning) {
-                        Toast.makeText(this, "Включите программу", Toast.LENGTH_SHORT).show();
-                        return true;
-                    }
+                    pttTapPending = false;
+                    tapHandler.removeCallbacks(singleTapRunnable);
                     return true;
+                }
 
-                case MotionEvent.ACTION_MOVE:
-                    if (!PmrService.isRunning) return true;
-                    if (!pttHoldActive && !pttLatched) {
-                        long dt = System.currentTimeMillis() - pttDownTime;
-                        if (dt >= PTT_TAP_MAX_MS) {
-                            cancelTapWaiting();
-                            pttHoldActive = true;
-                            beep();
-                            imgRed.setVisibility(View.VISIBLE);
-                            sendBroadcast(new Intent("PMR_START_RECORDING"));
-                        }
-                    }
+                if (pttHoldActive) {
+                    pttHoldActive = false;
+                    imgRed.setVisibility(View.INVISIBLE);
+                    sendBroadcast(new Intent("PMR_STOP_RECORDING"));
                     return true;
+                }
 
-                case MotionEvent.ACTION_UP:
-                case MotionEvent.ACTION_CANCEL:
-                    long duration = System.currentTimeMillis() - pttDownTime;
-                    boolean isCancel = event.getActionMasked() == MotionEvent.ACTION_CANCEL;
+                if (isCancel) return true;
 
-                    if (!PmrService.isRunning) {
-                        pttHoldActive = false;
-                        pttTapPending = false;
-                        tapHandler.removeCallbacks(singleTapRunnable);
-                        return true;
-                    }
-
-                    if (pttHoldActive) {
-                        pttHoldActive = false;
+                if (duration >= PTT_TAP_MAX_MS) {
+                    if (!pttLatched) {
+                        beep();
+                        imgRed.setVisibility(View.VISIBLE);
+                        sendBroadcast(new Intent("PMR_START_RECORDING"));
                         imgRed.setVisibility(View.INVISIBLE);
                         sendBroadcast(new Intent("PMR_STOP_RECORDING"));
-                        return true;
-                    }
-
-                    if (isCancel) return true;
-
-                    if (duration >= PTT_TAP_MAX_MS) {
-                        if (!pttLatched) {
-                            beep();
-                            imgRed.setVisibility(View.VISIBLE);
-                            sendBroadcast(new Intent("PMR_START_RECORDING"));
-                            imgRed.setVisibility(View.INVISIBLE);
-                            sendBroadcast(new Intent("PMR_STOP_RECORDING"));
-                        }
-                        return true;
-                    }
-
-                    if (pttTapPending) {
-                        cancelTapWaiting();
-                        if (pttLatchEnabled) {
-                            if (pttLatched) stopPttLatch();
-                            else startPttLatch();
-                        }
-                    } else {
-                        pttTapPending = true;
-                        tapHandler.postDelayed(singleTapRunnable, PTT_DOUBLE_TAP_TIMEOUT_MS);
                     }
                     return true;
-            }
-            return false;
-        });
+                }
+
+                if (pttTapPending) {
+                    cancelTapWaiting();
+                    if (pttLatchEnabled) {
+                        if (pttLatched) stopPttLatch();
+                        else startPttLatch();
+                    }
+                } else {
+                    pttTapPending = true;
+                    tapHandler.postDelayed(singleTapRunnable, PTT_DOUBLE_TAP_TIMEOUT_MS);
+                }
+                return true;
+        }
+        return false;
     }
 
     private void handlePresetClick(int presetNum) {
