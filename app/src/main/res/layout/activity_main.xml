@@ -24,7 +24,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
         android:layout_marginEnd="16dp"
-        android:text="v13.0"
+        android:text="v13.2"
         android:textColor="@color/colorButton"
         android:textSize="14sp"
         app:layout_constraintEnd_toEndOf="parent"
@@ -63,6 +63,17 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintVertical_bias="0.27" />
+
+    <!-- V13.2: Невидимая кнопка PTT (нажатие на экран) -->
+    <Button
+        android:id="@+id/btnPTT"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:background="@android:color/transparent"
+        app:layout_constraintBottom_toBottomOf="@+id/imgRadio"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/imgRadio" />
 
     <!-- Прозрачные кнопки поверх физических -->
     <!-- V/M -->
