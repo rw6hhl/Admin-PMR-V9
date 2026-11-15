@@ -57,7 +57,7 @@ public class MainActivity extends AppCompatActivity {
     private View btnPttLeft, btnPttRight;
 
     private boolean isAdminMode = false;
-    private boolean isMode144 = false; // V13.0
+    private boolean isMode144 = false;
     private PowerManager.WakeLock wakeLock;
     private int currentChannel = 4;
     private ToneGenerator toneGen;
@@ -79,9 +79,10 @@ public class MainActivity extends AppCompatActivity {
     private Button[] presetButtons;
 
     private boolean isScanning = false;
-    private int scanMode = 0;
+    private int scanMode = 0; 
     private int scanIndex = 1;
     private int scanTargetPreset = 1;
+    private int current144Base = 144000; // V13.1: База для сканирования 144-146
     private final Handler scanHandler = new Handler(Looper.getMainLooper());
     private Runnable scanRunnable;
     private Runnable resumeScanRunnable;
@@ -212,7 +213,7 @@ public class MainActivity extends AppCompatActivity {
 
         pttLatchEnabled = prefs.getBoolean("ptt_latch_enabled", true);
         showListNames = prefs.getBoolean("show_list_names", false);
-        isMode144 = prefs.getBoolean("mode_144_145", false); // V13.0
+        isMode144 = prefs.getBoolean("mode_144_145", false);
 
         checkAndRequestPermissions();
 
@@ -341,7 +342,7 @@ public class MainActivity extends AppCompatActivity {
 
         btnMenu.setOnClickListener(v -> {
             beep();
-            isMode144 = prefs.getBoolean("mode_144_145", false); // Обновляем флаг при выходе из настроек
+            isMode144 = prefs.getBoolean("mode_144_145", false);
             startActivity(new Intent(this, SettingsActivity.class));
         });
 
@@ -358,7 +359,6 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        // V13.0: Обработка UP с учетом режима 144-145
         btnUp.setOnClickListener(v -> {
             beep();
             if (isMode144) {
@@ -375,7 +375,6 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        // V13.0: Обработка DOWN с учетом режима 144-145
         btnDown.setOnClickListener(v -> {
             beep();
             if (isMode144) {
@@ -410,14 +409,12 @@ public class MainActivity extends AppCompatActivity {
         btnPttRight.setOnTouchListener(pttTouchListener);
     }
 
-    // V13.0: Изменение MyMailIndex с шагом и циклическим переходом
     private void changeMyMailIndexByStep(int step) {
         try {
             String currentStr = prefs.getString("MyMailIndex", "144000");
             int currentId = Integer.parseInt(currentStr);
             int newId = currentId + step;
 
-            // Циклический переход: 144000 <-> 146000
             if (newId < 144000) newId = 146000;
             if (newId > 146000) newId = 144000;
 
@@ -435,7 +432,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // V13.0: Обработка нажатия на ячейку с учетом режима
     private void handlePresetClick(int presetNum) {
         if (isMode144) {
             String fixedId = "144000";
@@ -446,6 +442,7 @@ public class MainActivity extends AppCompatActivity {
 
             prefs.edit().putString("MyMailIndex", fixedId).putInt("current_channel", 5).apply();
             currentChannel = 5;
+            current144Base = Integer.parseInt(fixedId); // Запоминаем базу для сканирования
 
             if (PmrService.pmrSocket != null) {
                 PmrService.pmrSocket.recreateSocket(this);
@@ -538,27 +535,61 @@ public class MainActivity extends AppCompatActivity {
         return false;
     }
 
+    // V13.1: Сканирование с учетом режима 144-146
     private void startScanning() {
         isScanning = true;
         scanMode = 0;
         scanIndex = 1;
         btnCallOrList.setText("SCAN");
         applyScanHighlight(true);
-        
-        scanRunnable = new Runnable() {
-            @Override
-            public void run() {
-                if (!isScanning || scanMode != 0) return;
-                if (prefs.contains("preset_ip_" + scanIndex)) {
-                    loadPreset(scanIndex);
+
+        if (isMode144) {
+            // В режиме 144-146 сканируем MyMailIndex внутри текущей ячейки
+            scanRunnable = new Runnable() {
+                @Override
+                public void run() {
+                    if (!isScanning) return;
+                    
+                    try {
+                        int currentId = Integer.parseInt(prefs.getString("MyMailIndex", "144000"));
+                        int nextId = currentId + 25;
+                        
+                        // Определяем границы для текущей ячейки
+                        int limit = current144Base + 500;
+                        if (current144Base == 146000) limit = 146000; // 5-я ячейка без шага
+                        
+                        if (nextId > limit) {
+                            nextId = current144Base;
+                        }
+                        
+                        prefs.edit().putString("MyMailIndex", String.valueOf(nextId)).apply();
+                        if (PmrService.pmrSocket != null) {
+                            PmrService.pmrSocket.recreateSocket(MainActivity.this);
+                        }
+                        updateUI();
+                    } catch (Exception ignored) {}
+                    
+                    scanHandler.postDelayed(this, SCAN_DELAY_MS);
                 }
-                scanIndex++;
-                if (scanIndex > 5) scanIndex = 1;
-                scanHandler.postDelayed(this, SCAN_DELAY_MS);
-            }
-        };
+            };
+        } else {
+            // Стандартное сканирование ячеек
+            scanRunnable = new Runnable() {
+                @Override
+                public void run() {
+                    if (!isScanning || scanMode != 0) return;
+                    if (prefs.contains("preset_ip_" + scanIndex)) {
+                        loadPreset(scanIndex);
+                    }
+                    scanIndex++;
+                    if (scanIndex > 5) scanIndex = 1;
+                    scanHandler.postDelayed(this, SCAN_DELAY_MS);
+                }
+            };
+        }
+        
         scanHandler.post(scanRunnable);
-        Toast.makeText(this, "Сканирование ВКЛ. UP/DOWN - сканировать каналы", Toast.LENGTH_LONG).show();
+        Toast.makeText(this, "Сканирование ВКЛ", Toast.LENGTH_SHORT).show();
     }
 
     private void switchToChannelScan(int presetNum) {
@@ -812,7 +843,7 @@ public class MainActivity extends AppCompatActivity {
         currentChannel = prefs.getInt("current_channel", 4);
         pttLatchEnabled = prefs.getBoolean("ptt_latch_enabled", true);
         showListNames = prefs.getBoolean("show_list_names", false);
-        isMode144 = prefs.getBoolean("mode_144_145", false); // Обновляем флаг при возврате
+        isMode144 = prefs.getBoolean("mode_144_145", false);
 
         updateUI();
         updateServerIpVisibility();
