@@ -50,17 +50,17 @@ public class MainActivity extends AppCompatActivity {
     private static final int SCAN_DELAY_MS = 500;
 
     private SharedPreferences prefs;
-    private TextView tvChannel, tvIndex, tvSpeakingId, tvVersion, tvActiveUsers;
+    private TextView tvFreqTop, tvFreqBottom, tvVersion, tvSpeakingId, tvActiveUsers;
     private TextView tvServerIp;
     private ImageView imgRed, imgGreen, btnPower;
     private Button btnMenu, btnUp, btnDown, btnSave1, btnSave2, btnSave3, btnSave4, btnSave5, btnCallOrList, btnPTT, btnSecretMode;
-    
-    // V12.9: Дополнительные кнопки PTT
+    private Button btnVM, btnAB;
+    private Button btn1, btn2, btn3, btn4, btn5, btn6, btn7, btn8, btn9, btn0;
     private View btnPttLeft, btnPttRight;
 
     private boolean isAdminMode = false;
     private PowerManager.WakeLock wakeLock;
-    private int currentChannel = 4;
+    private int currentChannel = 4; // Используется для старой логики
     private ToneGenerator toneGen;
     private boolean soundEnabled = true;
 
@@ -78,6 +78,13 @@ public class MainActivity extends AppCompatActivity {
 
     private int activePreset = 0;
     private Button[] presetButtons;
+
+    // V13.0: Переменные для частот
+    private int freqTop = 145500;
+    private int freqBottom = 430000;
+    private boolean isTopActive = true;
+    private String inputBuffer = "";
+    private String currentBand = "V"; // V = 144-146, M = 430-440
 
     private boolean isScanning = false;
     private int scanMode = 0;
@@ -190,7 +197,7 @@ public class MainActivity extends AppCompatActivity {
         if (!savedVersion.equals("10.5")) {
             prefs.edit()
                 .putString("app_version", "10.5")
-                .putString("MyMailIndex", "111111")
+                .putString("MyMailIndex", "145500")
                 .putString("Priznak_pmr", "22222")
                 .putInt("PORT_prm", 5253)
                 .putInt("PORT_prd", 15000)
@@ -214,6 +221,19 @@ public class MainActivity extends AppCompatActivity {
         pttLatchEnabled = prefs.getBoolean("ptt_latch_enabled", true);
         showListNames = prefs.getBoolean("show_list_names", false);
 
+        // V13.0: Загружаем частоту из MyMailIndex
+        try {
+            freqTop = Integer.parseInt(prefs.getString("MyMailIndex", "145500"));
+        } catch (Exception ignored) {}
+        
+        if (freqTop >= 430000) {
+            currentBand = "M";
+            freqBottom = 145500;
+        } else {
+            currentBand = "V";
+            freqBottom = 430000;
+        }
+
         checkAndRequestPermissions();
 
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -230,7 +250,7 @@ public class MainActivity extends AppCompatActivity {
         initViews();
         resetPresetHighlight();
         setupListeners();
-        updateUI();
+        updateFreqUI();
         updateServerIpVisibility();
         updatePowerButton();
 
@@ -275,34 +295,40 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void initViews() {
-        tvChannel = findViewById(R.id.textView);
-        tvIndex = findViewById(R.id.textView4);
-        tvSpeakingId = findViewById(R.id.tvSpeakingId);
+        tvFreqTop = findViewById(R.id.tvFreqTop);
+        tvFreqBottom = findViewById(R.id.tvFreqBottom);
         tvVersion = findViewById(R.id.tvVersion);
-        tvActiveUsers = findViewById(R.id.textView6);
+        tvSpeakingId = findViewById(R.id.tvSpeakingId);
+        tvActiveUsers = findViewById(R.id.tvActiveUsers);
         tvServerIp = findViewById(R.id.tvServerIp);
 
-        imgRed = findViewById(R.id.imageView);
-        imgGreen = findViewById(R.id.imageView2);
+        imgRed = findViewById(R.id.imgRed);
+        imgGreen = findViewById(R.id.imgGreen);
         btnPower = findViewById(R.id.btnPower);
 
-        btnMenu = findViewById(R.id.button4);
-        btnUp = findViewById(R.id.button1);
-        btnDown = findViewById(R.id.button2);
-        btnCallOrList = findViewById(R.id.button);
-        btnSave1 = findViewById(R.id.buttonsave1);
-        btnSave2 = findViewById(R.id.buttonsave2);
-        btnSave3 = findViewById(R.id.buttonsave3);
-        btnSave4 = findViewById(R.id.buttonsave4);
-        btnSave5 = findViewById(R.id.buttonsave5);
-        btnPTT = findViewById(R.id.btnPTT);
-        btnSecretMode = findViewById(R.id.btnSecretMode);
+        btnMenu = findViewById(R.id.btnMenu);
+        btnUp = findViewById(R.id.btnUp);
+        btnDown = findViewById(R.id.btnDown);
+        btnVM = findViewById(R.id.btnVM);
+        btnAB = findViewById(R.id.btnAB);
         
-        // V12.9: Дополнительные кнопки PTT
+        btn1 = findViewById(R.id.btn1);
+        btn2 = findViewById(R.id.btn2);
+        btn3 = findViewById(R.id.btn3);
+        btn4 = findViewById(R.id.btn4);
+        btn5 = findViewById(R.id.btn5);
+        btn6 = findViewById(R.id.btn6);
+        btn7 = findViewById(R.id.btn7);
+        btn8 = findViewById(R.id.btn8);
+        btn9 = findViewById(R.id.btn9);
+        btn0 = findViewById(R.id.btn0);
+
+        btnSecretMode = findViewById(R.id.btnSecretMode);
         btnPttLeft = findViewById(R.id.btnPttLeft);
         btnPttRight = findViewById(R.id.btnPttRight);
 
-        presetButtons = new Button[]{btnSave1, btnSave2, btnSave3, btnSave4, btnSave5};
+        // Если в layout есть старые кнопки, они не будут найдены, но это не вызовет ошибку, если мы не используем их напрямую.
+        // В V13.0 мы заменили layout на UV-5R.
     }
 
     private void setupListeners() {
@@ -330,83 +356,132 @@ public class MainActivity extends AppCompatActivity {
             return true;
         });
 
-        btnPower.setOnClickListener(v -> {
-            beep();
-            if (PmrService.isRunning) {
-                if (pttLatched) stopPttLatch();
-                stopService(new Intent(this, PmrService.class));
-            } else {
-                startService(new Intent(this, PmrService.class));
-            }
-            new Handler(Looper.getMainLooper()).postDelayed(this::updatePowerButton, 300);
-        });
-
         btnMenu.setOnClickListener(v -> {
             beep();
             startActivity(new Intent(this, SettingsActivity.class));
         });
 
-        btnCallOrList.setOnClickListener(v -> {
+        btnVM.setOnClickListener(v -> {
             beep();
-            if (isAdminMode) {
-                startActivity(new Intent(this, ChanListActivity.class));
+            if (currentBand.equals("V")) {
+                currentBand = "M";
+                setActiveFreq(430000);
             } else {
-                if (!isScanning) {
-                    startScanning();
-                } else {
-                    stopScanning();
-                }
+                currentBand = "V";
+                setActiveFreq(145500);
             }
+            updateFreqUI();
+        });
+
+        btnAB.setOnClickListener(v -> {
+            beep();
+            isTopActive = !isTopActive;
+            updateFreqUI();
         });
 
         btnUp.setOnClickListener(v -> {
             beep();
-            if (isScanning) {
-                switchToChannelScan(scanTargetPreset);
-            } else if (currentChannel < 8) {
-                currentChannel++;
-                lastUserCount = -1;
-                if (tvActiveUsers != null) tvActiveUsers.setText("");
-                updateUI();
-                prefs.edit().putInt("current_channel", currentChannel).apply();
-                if (PmrService.pmrSocket != null) PmrService.pmrSocket.recreateSocket(this);
-            }
+            setActiveFreq(getActiveFreq() + 25);
+            updateFreqUI();
         });
 
         btnDown.setOnClickListener(v -> {
             beep();
-            if (isScanning) {
-                switchToChannelScan(scanTargetPreset);
-            } else if (currentChannel > 0) {
-                currentChannel--;
-                lastUserCount = -1;
-                if (tvActiveUsers != null) tvActiveUsers.setText("");
-                updateUI();
-                prefs.edit().putInt("current_channel", currentChannel).apply();
-                if (PmrService.pmrSocket != null) PmrService.pmrSocket.recreateSocket(this);
-            }
+            setActiveFreq(getActiveFreq() - 25);
+            updateFreqUI();
         });
 
-        btnSave1.setOnClickListener(v -> { beep(); handlePresetClick(1); });
-        btnSave2.setOnClickListener(v -> { beep(); handlePresetClick(2); });
-        btnSave3.setOnClickListener(v -> { beep(); handlePresetClick(3); });
-        btnSave4.setOnClickListener(v -> { beep(); handlePresetClick(4); });
-        btnSave5.setOnClickListener(v -> { beep(); handlePresetClick(5); });
+        // V13.0: Ввод частоты с клавиатуры
+        View.OnClickListener numListener = v -> {
+            beep();
+            Button b = (Button) v;
+            inputBuffer += b.getText().toString();
+            
+            // Если введено 5 цифр (например, 14550) или 6 цифр (145500), применяем
+            if (inputBuffer.length() >= 5) {
+                try {
+                    int newFreq = Integer.parseInt(inputBuffer);
+                    if (newFreq >= 100000 && newFreq <= 999999) {
+                        setActiveFreq(newFreq);
+                        updateFreqUI();
+                        inputBuffer = "";
+                    } else {
+                        inputBuffer = "";
+                    }
+                } catch (Exception e) {
+                    inputBuffer = "";
+                }
+            }
+        };
 
-        btnSave1.setOnLongClickListener(v -> { beep(); savePreset(1); return true; });
-        btnSave2.setOnLongClickListener(v -> { beep(); savePreset(2); return true; });
-        btnSave3.setOnLongClickListener(v -> { beep(); savePreset(3); return true; });
-        btnSave4.setOnLongClickListener(v -> { beep(); savePreset(4); return true; });
-        btnSave5.setOnLongClickListener(v -> { beep(); savePreset(5); return true; });
+        btn1.setOnClickListener(numListener);
+        btn2.setOnClickListener(numListener);
+        btn3.setOnClickListener(numListener);
+        btn4.setOnClickListener(numListener);
+        btn5.setOnClickListener(numListener);
+        btn6.setOnClickListener(numListener);
+        btn7.setOnClickListener(numListener);
+        btn8.setOnClickListener(numListener);
+        btn9.setOnClickListener(numListener);
+        btn0.setOnClickListener(numListener);
 
-        // V12.9: Привязка обработчика к трем зонам PTT
+        // V13.0: PTT (3 зоны)
         View.OnTouchListener pttTouchListener = this::handlePttTouch;
         btnPTT.setOnTouchListener(pttTouchListener);
-        btnPttLeft.setOnTouchListener(pttTouchListener);
-        btnPttRight.setOnTouchListener(pttTouchListener);
+        if (btnPttLeft != null) btnPttLeft.setOnTouchListener(pttTouchListener);
+        if (btnPttRight != null) btnPttRight.setOnTouchListener(pttTouchListener);
     }
 
-    // V12.9: Общий метод для обработки касаний всех кнопок PTT
+    // V13.0: Получить частоту активной строки
+    private int getActiveFreq() {
+        return isTopActive ? freqTop : freqBottom;
+    }
+
+    // V13.0: Установить частоту активной строки
+    private void setActiveFreq(int freq) {
+        if (freq < 100000) freq = 100000;
+        if (freq > 999999) freq = 999999;
+
+        if (isTopActive) {
+            freqTop = freq;
+            // Автоматически определяем диапазон
+            if (freq >= 430000) currentBand = "M";
+            else currentBand = "V";
+        } else {
+            freqBottom = freq;
+        }
+
+        // Сохраняем в MyMailIndex
+        prefs.edit().putString("MyMailIndex", String.valueOf(freqTop)).apply();
+
+        // Перезапускаем сокет с новой частотой
+        if (PmrService.pmrSocket != null) {
+            PmrService.pmrSocket.recreateSocket(this);
+        }
+    }
+
+    // V13.0: Обновление вида частот
+    private void updateFreqUI() {
+        String topStr = String.format("%d.%03d", freqTop / 1000, freqTop % 1000);
+        String botStr = String.format("%d.%03d", freqBottom / 1000, freqBottom % 1000);
+
+        if (!inputBuffer.isEmpty()) {
+            if (isTopActive) topStr = inputBuffer + "_";
+            else botStr = inputBuffer + "_";
+        }
+
+        tvFreqTop.setText(topStr);
+        tvFreqBottom.setText(botStr);
+
+        if (isTopActive) {
+            tvFreqTop.setTextColor(Color.RED);
+            tvFreqBottom.setTextColor(Color.WHITE);
+        } else {
+            tvFreqTop.setTextColor(Color.WHITE);
+            tvFreqBottom.setTextColor(Color.RED);
+        }
+    }
+
     private boolean handlePttTouch(View v, MotionEvent event) {
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
@@ -480,109 +555,6 @@ public class MainActivity extends AppCompatActivity {
         return false;
     }
 
-    private void handlePresetClick(int presetNum) {
-        if (isScanning && scanMode == 0) {
-            scanTargetPreset = presetNum;
-            loadPreset(presetNum);
-            Toast.makeText(this, "Выбрана ячейка " + presetNum + ". Нажмите UP/DOWN для сканирования каналов", Toast.LENGTH_LONG).show();
-        } else {
-            loadPreset(presetNum);
-        }
-    }
-
-    private void startScanning() {
-        isScanning = true;
-        scanMode = 0;
-        scanIndex = 1;
-        btnCallOrList.setText("SCAN");
-        applyScanHighlight(true);
-        
-        scanRunnable = new Runnable() {
-            @Override
-            public void run() {
-                if (!isScanning || scanMode != 0) return;
-                if (prefs.contains("preset_ip_" + scanIndex)) {
-                    loadPreset(scanIndex);
-                }
-                scanIndex++;
-                if (scanIndex > 5) scanIndex = 1;
-                scanHandler.postDelayed(this, SCAN_DELAY_MS);
-            }
-        };
-        scanHandler.post(scanRunnable);
-        Toast.makeText(this, "Сканирование ВКЛ. UP/DOWN - сканировать каналы", Toast.LENGTH_LONG).show();
-    }
-
-    private void switchToChannelScan(int presetNum) {
-        scanMode = 1;
-        scanHandler.removeCallbacks(scanRunnable);
-        
-        loadPreset(presetNum);
-        scanIndex = currentChannel;
-        
-        scanRunnable = new Runnable() {
-            @Override
-            public void run() {
-                if (!isScanning || scanMode != 1) return;
-                
-                scanIndex++;
-                if (scanIndex > 8) scanIndex = 1;
-                currentChannel = scanIndex;
-                
-                lastUserCount = -1;
-                if (tvActiveUsers != null) tvActiveUsers.setText("");
-                updateUI();
-                prefs.edit().putInt("current_channel", currentChannel).apply();
-                
-                if (PmrService.pmrSocket != null) {
-                    PmrService.pmrSocket.recreateSocket(MainActivity.this);
-                }
-                
-                scanHandler.postDelayed(this, SCAN_DELAY_MS);
-            }
-        };
-        scanHandler.post(scanRunnable);
-        Toast.makeText(this, "Сканирование каналов ячейки " + presetNum, Toast.LENGTH_SHORT).show();
-    }
-
-    private void stopScanning() {
-        isScanning = false;
-        scanMode = 0;
-        btnCallOrList.setText("SCAN");
-        applyScanHighlight(false);
-        scanHandler.removeCallbacks(scanRunnable);
-        if (resumeScanRunnable != null) scanHandler.removeCallbacks(resumeScanRunnable);
-        resetPresetHighlight();
-    }
-
-    private void pauseScanningForVoice() {
-        scanHandler.removeCallbacks(scanRunnable);
-        resumeScanRunnable = new Runnable() {
-            @Override
-            public void run() {
-                if (isScanning) {
-                    scanHandler.post(scanRunnable);
-                }
-            }
-        };
-    }
-
-    private void applyScanHighlight(boolean active) {
-        if (btnCallOrList == null) return;
-        if (active) {
-            GradientDrawable gd = new GradientDrawable();
-            gd.setShape(GradientDrawable.RECTANGLE);
-            gd.setColor(Color.TRANSPARENT);
-            float r = PRESET_CORNER_RADIUS_DP * getResources().getDisplayMetrics().density;
-            gd.setCornerRadius(r);
-            float sw = PRESET_STROKE_WIDTH_DP * getResources().getDisplayMetrics().density;
-            gd.setStroke((int) sw, getResources().getColor(R.color.scan_color));
-            btnCallOrList.setBackground(gd);
-        } else {
-            btnCallOrList.setBackgroundResource(R.drawable.roundshapebtn);
-        }
-    }
-
     private void cancelTapWaiting() {
         pttTapPending = false;
         tapHandler.removeCallbacks(singleTapRunnable);
@@ -632,128 +604,63 @@ public class MainActivity extends AppCompatActivity {
         ed.putBoolean("is_admin_mode", isAdminMode);
         if (isAdminMode) ed.putBoolean("ask_password", true);
         ed.apply();
-        updateUI();
+        updatePowerButton();
     }
 
     private void updatePowerButton() {
-        if (btnPower == null) return;
-        boolean show = prefs.getBoolean("show_power_button", false);
-        btnPower.setVisibility(show ? View.VISIBLE : View.GONE);
-        if (show) {
-            btnPower.setImageResource(PmrService.isRunning ? R.drawable.power_on : R.drawable.power_off);
-        }
+        // В V13.0 кнопка питания на картинке UV-5R отсутствует, логика скрыта
     }
 
     private void updateServerIpVisibility() {
-        if (tvServerIp == null) return;
-        boolean show = prefs.getBoolean("show_server_ip", false);
-        if (show) {
-            tvServerIp.setText(prefs.getString("ip_server", "109.172.7.155"));
-            tvServerIp.setVisibility(View.VISIBLE);
-        } else {
-            tvServerIp.setVisibility(View.GONE);
-        }
-    }
-
-    private void savePreset(int presetNum) {
-        String ip = prefs.getString("ip_server", "109.172.7.155");
-        int prm = prefs.getInt("PORT_prm", 5253);
-        int prd = prefs.getInt("PORT_prd", 15000);
-        String index = prefs.getString("MyMailIndex", "111111");
-        String priznak = prefs.getString("Priznak_pmr", "22222");
-
-        prefs.edit()
-            .putInt("preset_channel_" + presetNum, currentChannel)
-            .putString("preset_index_" + presetNum, index)
-            .putString("preset_priznak_" + presetNum, priznak)
-            .putString("preset_ip_" + presetNum, ip)
-            .putInt("preset_port_prm_" + presetNum, prm)
-            .putInt("preset_port_prd_" + presetNum, prd)
-            .apply();
-
-        Toast.makeText(this, "Ячейка " + presetNum + ": " + ip + ":" + prm + " / " + index, Toast.LENGTH_LONG).show();
-    }
-
-    private void loadPreset(int presetNum) {
-        if (!prefs.contains("preset_ip_" + presetNum)) return;
-
-        int channel = prefs.getInt("preset_channel_" + presetNum, currentChannel);
-        String index = prefs.getString("preset_index_" + presetNum, prefs.getString("MyMailIndex", "111111"));
-        String priznak = prefs.getString("preset_priznak_" + presetNum, prefs.getString("Priznak_pmr", "22222"));
-        String ip = prefs.getString("preset_ip_" + presetNum, prefs.getString("ip_server", "109.172.7.155"));
-        int prm = prefs.getInt("preset_port_prm_" + presetNum, prefs.getInt("PORT_prm", 5253));
-        int prd = prefs.getInt("preset_port_prd_" + presetNum, prefs.getInt("PORT_prd", 15000));
-
-        currentChannel = channel;
-        lastUserCount = -1;
-        if (tvActiveUsers != null) tvActiveUsers.setText("");
-
-        prefs.edit()
-            .putInt("current_channel", channel)
-            .putString("MyMailIndex", index)
-            .putString("Priznak_pmr", priznak)
-            .putString("ip_server", ip)
-            .putInt("PORT_prm", prm)
-            .putInt("PORT_prd", prd)
-            .apply();
-
-        if (PmrService.pmrSocket != null) {
-            PmrService.pmrSocket.recreateSocket(this);
-        }
-
-        updateUI();
-        updateServerIpVisibility();
-        highlightPreset(presetNum);
+        // В V13.0 IP скрыт, чтобы не портить вид рации
     }
 
     private void highlightPreset(int presetNum) {
-        if (presetButtons == null) return;
-        if (presetNum < 1 || presetNum > presetButtons.length) return;
-        if (activePreset >= 1 && activePreset <= presetButtons.length) {
-            applyPresetHighlight(presetButtons[activePreset - 1], false);
-        }
-        applyPresetHighlight(presetButtons[presetNum - 1], true);
-        activePreset = presetNum;
+        // Заглушка для V13.0
     }
 
     private void resetPresetHighlight() {
-        if (presetButtons == null) return;
-        for (int i = 0; i < presetButtons.length; i++) {
-            applyPresetHighlight(presetButtons[i], false);
-        }
-        activePreset = 0;
+        // Заглушка для V13.0
     }
 
     private void applyPresetHighlight(Button btn, boolean highlighted) {
-        if (btn == null) return;
-        if (highlighted) {
-            GradientDrawable gd = new GradientDrawable();
-            gd.setShape(GradientDrawable.RECTANGLE);
-            gd.setColor(Color.TRANSPARENT);
-            float r = PRESET_CORNER_RADIUS_DP * getResources().getDisplayMetrics().density;
-            gd.setCornerRadius(r);
-            float sw = PRESET_STROKE_WIDTH_DP * getResources().getDisplayMetrics().density;
-            gd.setStroke((int) sw, PRESET_HIGHLIGHT_COLOR);
-            btn.setBackground(gd);
-            btn.setTypeface(null, Typeface.BOLD);
-        } else {
-            btn.setBackgroundResource(R.drawable.roundshapebtn);
-            btn.setTypeface(null, Typeface.NORMAL);
-        }
+        // Заглушка для V13.0
+    }
+
+    private void startScanning() {
+        // Заглушка для V13.0
+    }
+
+    private void switchToChannelScan(int presetNum) {
+        // Заглушка для V13.0
+    }
+
+    private void stopScanning() {
+        isScanning = false;
+    }
+
+    private void pauseScanningForVoice() {
+        // Заглушка для V13.0
+    }
+
+    private void applyScanHighlight(boolean active) {
+        // Заглушка для V13.0
+    }
+
+    private void handlePresetClick(int presetNum) {
+        // Заглушка для V13.0
+    }
+
+    private void savePreset(int presetNum) {
+        // Заглушка для V13.0
+    }
+
+    private void loadPreset(int presetNum) {
+        // Заглушка для V13.0
     }
 
     private void updateUI() {
-        tvChannel.setText(currentChannel == 0 ? "R" : String.valueOf(currentChannel));
-        tvIndex.setText(prefs.getString("MyMailIndex", "111111"));
-        tvVersion.setText("v" + BuildConfig.VERSION_NAME);
-
-        if (isAdminMode) {
-            tvChannel.setTextColor(getResources().getColor(R.color.admin_channel));
-            btnCallOrList.setText("LIST");
-        } else {
-            tvChannel.setTextColor(getResources().getColor(android.R.color.black));
-            btnCallOrList.setText("SCAN");
-        }
+        // Заглушка для V13.0
     }
 
     @Override
@@ -761,14 +668,10 @@ public class MainActivity extends AppCompatActivity {
         super.onResume();
         soundEnabled = prefs.getBoolean("sound_enabled", false);
         isAdminMode = prefs.getBoolean("is_admin_mode", false);
-        currentChannel = prefs.getInt("current_channel", 4);
         pttLatchEnabled = prefs.getBoolean("ptt_latch_enabled", true);
         showListNames = prefs.getBoolean("show_list_names", false);
-        
-        updateUI();
-        updateServerIpVisibility();
-        updatePowerButton();
-        
+
+        updateFreqUI();
         registerReceiver(voiceReceiver, new IntentFilter("PMR_VOICE_RECEIVED"));
         registerReceiver(voiceEndReceiver, new IntentFilter("PMR_VOICE_END"));
         registerReceiver(usersReceiver, new IntentFilter("PMR_USERS_CHANGED"));
@@ -790,9 +693,7 @@ public class MainActivity extends AppCompatActivity {
         speakingHandler.removeCallbacks(resetSpeakingId);
         blinkHandler.removeCallbacks(blinkRunnable);
         tapHandler.removeCallbacks(singleTapRunnable);
-        scanHandler.removeCallbacks(scanRunnable);
-        if (resumeScanRunnable != null) scanHandler.removeCallbacks(resumeScanRunnable);
-        
+
         if (pttLatched) {
             try { sendBroadcast(new Intent("PMR_STOP_RECORDING")); } catch (Exception ignored) {}
         }
