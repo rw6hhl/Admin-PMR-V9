@@ -12,11 +12,13 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.media.AudioManager;
 import android.media.ToneGenerator;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.provider.Settings;
 import android.text.InputType;
 import android.view.GestureDetector;
 import android.view.MotionEvent;
@@ -35,6 +37,8 @@ import androidx.core.content.ContextCompat;
 
 public class MainActivity extends AppCompatActivity {
     private static final int REQ_MIC = 101;
+    private static final int REQ_NOTIF = 102;
+    private static final int REQ_INSTALL = 103;
     private static final int PTT_LATCH_BLINK_PERIOD_MS = 500;
     private static final int PTT_TAP_MAX_MS = 150;
     private static final int PTT_DOUBLE_TAP_TIMEOUT_MS = 300;
@@ -43,8 +47,6 @@ public class MainActivity extends AppCompatActivity {
     private static final int PRESET_HIGHLIGHT_COLOR = 0xFFFF9800;
     private static final float PRESET_CORNER_RADIUS_DP = 8f;
     private static final float PRESET_STROKE_WIDTH_DP = 2.5f;
-
-    // V11.8: Задержка сканирования
     private static final int SCAN_DELAY_MS = 500;
 
     private SharedPreferences prefs;
@@ -52,7 +54,10 @@ public class MainActivity extends AppCompatActivity {
     private TextView tvServerIp;
     private ImageView imgRed, imgGreen, btnPower;
     private Button btnMenu, btnUp, btnDown, btnSave1, btnSave2, btnSave3, btnSave4, btnSave5, btnCallOrList, btnPTT, btnSecretMode;
+    private View btnPttLeft, btnPttRight;
+
     private boolean isAdminMode = false;
+    private boolean isMode144 = false; // V13.0
     private PowerManager.WakeLock wakeLock;
     private int currentChannel = 4;
     private ToneGenerator toneGen;
@@ -73,9 +78,8 @@ public class MainActivity extends AppCompatActivity {
     private int activePreset = 0;
     private Button[] presetButtons;
 
-    // V11.8: Переменные сканирования
     private boolean isScanning = false;
-    private int scanMode = 0; // 0 = ячейки, 1 = каналы внутри ячейки
+    private int scanMode = 0;
     private int scanIndex = 1;
     private int scanTargetPreset = 1;
     private final Handler scanHandler = new Handler(Looper.getMainLooper());
@@ -208,8 +212,9 @@ public class MainActivity extends AppCompatActivity {
 
         pttLatchEnabled = prefs.getBoolean("ptt_latch_enabled", true);
         showListNames = prefs.getBoolean("show_list_names", false);
+        isMode144 = prefs.getBoolean("mode_144_145", false); // V13.0
 
-        requestPermissions();
+        checkAndRequestPermissions();
 
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
@@ -232,7 +237,28 @@ public class MainActivity extends AppCompatActivity {
         if (!PmrService.isRunning) {
             try {
                 startService(new Intent(this, PmrService.class));
-            } catch (Exception ignored) {}
+            } catch (Exception e) {
+                Toast.makeText(this, "Ошибка запуска службы: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                AppLog.add("MainActivity: ОШИБКА startService — " + e.getMessage());
+            }
+        }
+    }
+
+    private void checkAndRequestPermissions() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIF);
+            }
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.RECORD_AUDIO}, REQ_MIC);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (!getPackageManager().canRequestPackageInstalls()) {
+                Intent intent = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES);
+                intent.setData(Uri.parse("package:" + getPackageName()));
+                startActivityForResult(intent, REQ_INSTALL);
+            }
         }
     }
 
@@ -241,18 +267,6 @@ public class MainActivity extends AppCompatActivity {
         try {
             toneGen.startTone(ToneGenerator.TONE_PROP_BEEP, 100);
         } catch (Exception ignored) {}
-    }
-
-    // V12.0: Запрос разрешений для микрофона и уведомлений (Android 13+)
-    private void requestPermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.POST_NOTIFICATIONS}, 102);
-            }
-        }
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.RECORD_AUDIO}, REQ_MIC);
-        }
     }
 
     @Override
@@ -283,6 +297,8 @@ public class MainActivity extends AppCompatActivity {
         btnSave5 = findViewById(R.id.buttonsave5);
         btnPTT = findViewById(R.id.btnPTT);
         btnSecretMode = findViewById(R.id.btnSecretMode);
+        btnPttLeft = findViewById(R.id.btnPttLeft);
+        btnPttRight = findViewById(R.id.btnPttRight);
 
         presetButtons = new Button[]{btnSave1, btnSave2, btnSave3, btnSave4, btnSave5};
     }
@@ -325,6 +341,7 @@ public class MainActivity extends AppCompatActivity {
 
         btnMenu.setOnClickListener(v -> {
             beep();
+            isMode144 = prefs.getBoolean("mode_144_145", false); // Обновляем флаг при выходе из настроек
             startActivity(new Intent(this, SettingsActivity.class));
         });
 
@@ -341,9 +358,12 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+        // V13.0: Обработка UP с учетом режима 144-145
         btnUp.setOnClickListener(v -> {
             beep();
-            if (isScanning) {
+            if (isMode144) {
+                changeMyMailIndexByStep(25);
+            } else if (isScanning) {
                 switchToChannelScan(scanTargetPreset);
             } else if (currentChannel < 8) {
                 currentChannel++;
@@ -355,9 +375,12 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+        // V13.0: Обработка DOWN с учетом режима 144-145
         btnDown.setOnClickListener(v -> {
             beep();
-            if (isScanning) {
+            if (isMode144) {
+                changeMyMailIndexByStep(-25);
+            } else if (isScanning) {
                 switchToChannelScan(scanTargetPreset);
             } else if (currentChannel > 0) {
                 currentChannel--;
@@ -375,87 +398,64 @@ public class MainActivity extends AppCompatActivity {
         btnSave4.setOnClickListener(v -> { beep(); handlePresetClick(4); });
         btnSave5.setOnClickListener(v -> { beep(); handlePresetClick(5); });
 
-        btnSave1.setOnLongClickListener(v -> { beep(); savePreset(1); return true; });
-        btnSave2.setOnLongClickListener(v -> { beep(); savePreset(2); return true; });
-        btnSave3.setOnLongClickListener(v -> { beep(); savePreset(3); return true; });
-        btnSave4.setOnLongClickListener(v -> { beep(); savePreset(4); return true; });
-        btnSave5.setOnLongClickListener(v -> { beep(); savePreset(5); return true; });
+        btnSave1.setOnLongClickListener(v -> { beep(); if (!isMode144) savePreset(1); return true; });
+        btnSave2.setOnLongClickListener(v -> { beep(); if (!isMode144) savePreset(2); return true; });
+        btnSave3.setOnLongClickListener(v -> { beep(); if (!isMode144) savePreset(3); return true; });
+        btnSave4.setOnLongClickListener(v -> { beep(); if (!isMode144) savePreset(4); return true; });
+        btnSave5.setOnLongClickListener(v -> { beep(); if (!isMode144) savePreset(5); return true; });
 
-        btnPTT.setOnTouchListener((v, event) -> {
-            switch (event.getActionMasked()) {
-                case MotionEvent.ACTION_DOWN:
-                    pttDownTime = System.currentTimeMillis();
-                    pttHoldActive = false;
-                    if (isScanning) stopScanning();
-                    if (!PmrService.isRunning) {
-                        Toast.makeText(this, "Включите программу", Toast.LENGTH_SHORT).show();
-                        return true;
-                    }
-                    return true;
-
-                case MotionEvent.ACTION_MOVE:
-                    if (!PmrService.isRunning) return true;
-                    if (!pttHoldActive && !pttLatched) {
-                        long dt = System.currentTimeMillis() - pttDownTime;
-                        if (dt >= PTT_TAP_MAX_MS) {
-                            cancelTapWaiting();
-                            pttHoldActive = true;
-                            beep();
-                            imgRed.setVisibility(View.VISIBLE);
-                            sendBroadcast(new Intent("PMR_START_RECORDING"));
-                        }
-                    }
-                    return true;
-
-                case MotionEvent.ACTION_UP:
-                case MotionEvent.ACTION_CANCEL:
-                    long duration = System.currentTimeMillis() - pttDownTime;
-                    boolean isCancel = event.getActionMasked() == MotionEvent.ACTION_CANCEL;
-
-                    if (!PmrService.isRunning) {
-                        pttHoldActive = false;
-                        pttTapPending = false;
-                        tapHandler.removeCallbacks(singleTapRunnable);
-                        return true;
-                    }
-
-                    if (pttHoldActive) {
-                        pttHoldActive = false;
-                        imgRed.setVisibility(View.INVISIBLE);
-                        sendBroadcast(new Intent("PMR_STOP_RECORDING"));
-                        return true;
-                    }
-
-                    if (isCancel) return true;
-
-                    if (duration >= PTT_TAP_MAX_MS) {
-                        if (!pttLatched) {
-                            beep();
-                            imgRed.setVisibility(View.VISIBLE);
-                            sendBroadcast(new Intent("PMR_START_RECORDING"));
-                            imgRed.setVisibility(View.INVISIBLE);
-                            sendBroadcast(new Intent("PMR_STOP_RECORDING"));
-                        }
-                        return true;
-                    }
-
-                    if (pttTapPending) {
-                        cancelTapWaiting();
-                        if (pttLatchEnabled) {
-                            if (pttLatched) stopPttLatch();
-                            else startPttLatch();
-                        }
-                    } else {
-                        pttTapPending = true;
-                        tapHandler.postDelayed(singleTapRunnable, PTT_DOUBLE_TAP_TIMEOUT_MS);
-                    }
-                    return true;
-            }
-            return false;
-        });
+        View.OnTouchListener pttTouchListener = this::handlePttTouch;
+        btnPTT.setOnTouchListener(pttTouchListener);
+        btnPttLeft.setOnTouchListener(pttTouchListener);
+        btnPttRight.setOnTouchListener(pttTouchListener);
     }
 
+    // V13.0: Изменение MyMailIndex с шагом и циклическим переходом
+    private void changeMyMailIndexByStep(int step) {
+        try {
+            String currentStr = prefs.getString("MyMailIndex", "144000");
+            int currentId = Integer.parseInt(currentStr);
+            int newId = currentId + step;
+
+            // Циклический переход: 144000 <-> 146000
+            if (newId < 144000) newId = 146000;
+            if (newId > 146000) newId = 144000;
+
+            prefs.edit().putString("MyMailIndex", String.valueOf(newId)).apply();
+            AppLog.add("MainActivity: Режим 144-145 → новый ID=" + newId);
+
+            if (PmrService.pmrSocket != null) {
+                PmrService.pmrSocket.recreateSocket(this);
+            }
+
+            updateUI();
+            Toast.makeText(this, "ID: " + newId, Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            AppLog.add("MainActivity: Ошибка смены ID — " + e.getMessage());
+        }
+    }
+
+    // V13.0: Обработка нажатия на ячейку с учетом режима
     private void handlePresetClick(int presetNum) {
+        if (isMode144) {
+            String fixedId = "144000";
+            if (presetNum == 2) fixedId = "144500";
+            else if (presetNum == 3) fixedId = "145000";
+            else if (presetNum == 4) fixedId = "145500";
+            else if (presetNum == 5) fixedId = "146000";
+
+            prefs.edit().putString("MyMailIndex", fixedId).putInt("current_channel", 5).apply();
+            currentChannel = 5;
+
+            if (PmrService.pmrSocket != null) {
+                PmrService.pmrSocket.recreateSocket(this);
+            }
+            updateUI();
+            highlightPreset(presetNum);
+            Toast.makeText(this, "Загружено: MyMailIndex=" + fixedId + ", канал 5", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
         if (isScanning && scanMode == 0) {
             scanTargetPreset = presetNum;
             loadPreset(presetNum);
@@ -463,6 +463,79 @@ public class MainActivity extends AppCompatActivity {
         } else {
             loadPreset(presetNum);
         }
+    }
+
+    private boolean handlePttTouch(View v, MotionEvent event) {
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                pttDownTime = System.currentTimeMillis();
+                pttHoldActive = false;
+                if (isScanning) stopScanning();
+                if (!PmrService.isRunning) {
+                    Toast.makeText(this, "Включите программу", Toast.LENGTH_SHORT).show();
+                    return true;
+                }
+                return true;
+
+            case MotionEvent.ACTION_MOVE:
+                if (!PmrService.isRunning) return true;
+                if (!pttHoldActive && !pttLatched) {
+                    long dt = System.currentTimeMillis() - pttDownTime;
+                    if (dt >= PTT_TAP_MAX_MS) {
+                        cancelTapWaiting();
+                        pttHoldActive = true;
+                        beep();
+                        imgRed.setVisibility(View.VISIBLE);
+                        sendBroadcast(new Intent("PMR_START_RECORDING"));
+                    }
+                }
+                return true;
+
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                long duration = System.currentTimeMillis() - pttDownTime;
+                boolean isCancel = event.getActionMasked() == MotionEvent.ACTION_CANCEL;
+
+                if (!PmrService.isRunning) {
+                    pttHoldActive = false;
+                    pttTapPending = false;
+                    tapHandler.removeCallbacks(singleTapRunnable);
+                    return true;
+                }
+
+                if (pttHoldActive) {
+                    pttHoldActive = false;
+                    imgRed.setVisibility(View.INVISIBLE);
+                    sendBroadcast(new Intent("PMR_STOP_RECORDING"));
+                    return true;
+                }
+
+                if (isCancel) return true;
+
+                if (duration >= PTT_TAP_MAX_MS) {
+                    if (!pttLatched) {
+                        beep();
+                        imgRed.setVisibility(View.VISIBLE);
+                        sendBroadcast(new Intent("PMR_START_RECORDING"));
+                        imgRed.setVisibility(View.INVISIBLE);
+                        sendBroadcast(new Intent("PMR_STOP_RECORDING"));
+                    }
+                    return true;
+                }
+
+                if (pttTapPending) {
+                    cancelTapWaiting();
+                    if (pttLatchEnabled) {
+                        if (pttLatched) stopPttLatch();
+                        else startPttLatch();
+                    }
+                } else {
+                    pttTapPending = true;
+                    tapHandler.postDelayed(singleTapRunnable, PTT_DOUBLE_TAP_TIMEOUT_MS);
+                }
+                return true;
+        }
+        return false;
     }
 
     private void startScanning() {
@@ -739,7 +812,8 @@ public class MainActivity extends AppCompatActivity {
         currentChannel = prefs.getInt("current_channel", 4);
         pttLatchEnabled = prefs.getBoolean("ptt_latch_enabled", true);
         showListNames = prefs.getBoolean("show_list_names", false);
-        
+        isMode144 = prefs.getBoolean("mode_144_145", false); // Обновляем флаг при возврате
+
         updateUI();
         updateServerIpVisibility();
         updatePowerButton();

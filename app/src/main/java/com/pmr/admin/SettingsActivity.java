@@ -36,6 +36,7 @@ public class SettingsActivity extends AppCompatActivity {
     private Button btnChanList, btnLogs, btnLoadList;
     private CheckBox cbVerboseLog, cbSoundEnabled, cbAskPassword, cbPttLatch, cbShowListNames;
     private CheckBox cbSimplex, cbShowPowerButton, cbShowServerIp;
+    private CheckBox cbMode144; // V13.0
 
     private final ActivityResultLauncher<String[]> openListLauncher =
             registerForActivityResult(new ActivityResultContracts.OpenDocument(), uri -> {
@@ -117,7 +118,7 @@ public class SettingsActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_settings);
-        AppLog.add("SettingsActivity: onCreate (V12.8)");
+        AppLog.add("SettingsActivity: onCreate (V13.0)");
 
         prefs = getSharedPreferences("pmr_prefs", MODE_PRIVATE);
 
@@ -139,6 +140,7 @@ public class SettingsActivity extends AppCompatActivity {
         cbSimplex = findViewById(R.id.cbSimplex);
         cbShowPowerButton = findViewById(R.id.cbShowPowerButton);
         cbShowServerIp = findViewById(R.id.cbShowServerIp);
+        cbMode144 = findViewById(R.id.cbMode144); // V13.0
 
         cbUsilMic = findViewById(R.id.cbUsilMic);
         editUsilMic = findViewById(R.id.editUsilMic);
@@ -157,6 +159,12 @@ public class SettingsActivity extends AppCompatActivity {
         cbAgc.setChecked(prefs.getBoolean("onAgc", false));
         cbUsilDin.setChecked(prefs.getBoolean("onUsilDin", false));
         editUsilDin.setText(String.valueOf(prefs.getFloat("DinUsildouble", 5.0f)));
+
+        // V13.0: Состояние режима 144-145
+        if (cbMode144 != null) {
+            cbMode144.setChecked(prefs.getBoolean("mode_144_145", false));
+            cbMode144.setOnCheckedChangeListener((b, checked) -> prefs.edit().putBoolean("mode_144_145", checked).apply());
+        }
 
         if (cbPttLatch != null) {
             cbPttLatch.setChecked(prefs.getBoolean("ptt_latch_enabled", false));
@@ -255,7 +263,6 @@ public class SettingsActivity extends AppCompatActivity {
             btnImport.setOnClickListener(v -> importPresetsLauncher.launch(new String[]{"text/plain", "*/*"}));
         }
 
-        // V12.8: Открытие папки apk в браузере
         Button btnCheckUpdate = findViewById(R.id.btnCheckUpdate);
         if (btnCheckUpdate != null) {
             btnCheckUpdate.setOnClickListener(v -> {
