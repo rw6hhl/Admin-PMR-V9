@@ -160,12 +160,11 @@
             android:orientation="vertical"
             android:visibility="gone">
 
-            <!-- V13.0: Режим 144-145 -->
             <CheckBox
                 android:id="@+id/cbMode144"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Режим 144-145 (экспериментальный)"
+                android:text="144 - 146 Мгц"
                 android:textColor="@color/colortextabout"
                 android:checked="false"
                 android:layout_marginTop="8dp"

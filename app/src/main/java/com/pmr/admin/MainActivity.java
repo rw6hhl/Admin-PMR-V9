@@ -82,7 +82,7 @@ public class MainActivity extends AppCompatActivity {
     private int scanMode = 0; 
     private int scanIndex = 1;
     private int scanTargetPreset = 1;
-    private int current144Base = 144000; // V13.1: База для сканирования 144-146
+    private int current144Base = 144000;
     private final Handler scanHandler = new Handler(Looper.getMainLooper());
     private Runnable scanRunnable;
     private Runnable resumeScanRunnable;
@@ -187,6 +187,7 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception ignored) {}
 
         String savedVersion = prefs.getString("app_version", "0");
+        // V13.2: Значения по умолчанию при первом запуске
         if (!savedVersion.equals("10.5")) {
             prefs.edit()
                 .putString("app_version", "10.5")
@@ -201,10 +202,10 @@ public class MainActivity extends AppCompatActivity {
                 .putBoolean("ptt_latch_enabled", true)
                 .putBoolean("sound_enabled", false)
                 .putFloat("MicUsildouble", 5.0f)
-                .putBoolean("onUsilMic", true)
+                .putBoolean("onUsilMic", false) // V13.2: выключено
                 .putFloat("DinUsildouble", 5.0f)
-                .putBoolean("onUsilDin", true)
-                .putBoolean("onAgc", true)
+                .putBoolean("onUsilDin", false) // V13.2: выключено
+                .putBoolean("onAgc", true)     // V13.2: включено
                 .putBoolean("show_list_names", false)
                 .putBoolean("ask_password", true)
                 .putBoolean("show_power_button", false)
@@ -442,7 +443,7 @@ public class MainActivity extends AppCompatActivity {
 
             prefs.edit().putString("MyMailIndex", fixedId).putInt("current_channel", 5).apply();
             currentChannel = 5;
-            current144Base = Integer.parseInt(fixedId); // Запоминаем базу для сканирования
+            current144Base = Integer.parseInt(fixedId);
 
             if (PmrService.pmrSocket != null) {
                 PmrService.pmrSocket.recreateSocket(this);
@@ -535,7 +536,6 @@ public class MainActivity extends AppCompatActivity {
         return false;
     }
 
-    // V13.1: Сканирование с учетом режима 144-146
     private void startScanning() {
         isScanning = true;
         scanMode = 0;
@@ -544,19 +544,15 @@ public class MainActivity extends AppCompatActivity {
         applyScanHighlight(true);
 
         if (isMode144) {
-            // В режиме 144-146 сканируем MyMailIndex внутри текущей ячейки
             scanRunnable = new Runnable() {
                 @Override
                 public void run() {
                     if (!isScanning) return;
-                    
                     try {
                         int currentId = Integer.parseInt(prefs.getString("MyMailIndex", "144000"));
                         int nextId = currentId + 25;
-                        
-                        // Определяем границы для текущей ячейки
                         int limit = current144Base + 500;
-                        if (current144Base == 146000) limit = 146000; // 5-я ячейка без шага
+                        if (current144Base == 146000) limit = 146000;
                         
                         if (nextId > limit) {
                             nextId = current144Base;
@@ -568,12 +564,10 @@ public class MainActivity extends AppCompatActivity {
                         }
                         updateUI();
                     } catch (Exception ignored) {}
-                    
                     scanHandler.postDelayed(this, SCAN_DELAY_MS);
                 }
             };
         } else {
-            // Стандартное сканирование ячеек
             scanRunnable = new Runnable() {
                 @Override
                 public void run() {
