@@ -58,6 +58,8 @@ public class MainActivity extends AppCompatActivity {
 
     private boolean isAdminMode = false;
     private boolean isMode144 = false;
+    private boolean isSimplex = false; // V13.3: Флаг симплекса
+    private boolean isChannelBusy = false; // V13.3: Кто-то говорит в канале
     private PowerManager.WakeLock wakeLock;
     private int currentChannel = 4;
     private ToneGenerator toneGen;
@@ -116,6 +118,7 @@ public class MainActivity extends AppCompatActivity {
         public void onReceive(Context context, Intent intent) {
             int clientNumber = intent.getIntExtra("clientId", -1);
             if (clientNumber != -1) {
+                isChannelBusy = true; // V13.3: Канал занят
                 if (isScanning) pauseScanningForVoice();
 
                 if (!showListNames) {
@@ -155,6 +158,7 @@ public class MainActivity extends AppCompatActivity {
     private BroadcastReceiver voiceEndReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
+            isChannelBusy = false; // V13.3: Канал свободен
             if (isScanning && resumeScanRunnable != null) {
                 scanHandler.removeCallbacks(resumeScanRunnable);
                 scanHandler.postDelayed(resumeScanRunnable, 3000);
@@ -187,7 +191,6 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception ignored) {}
 
         String savedVersion = prefs.getString("app_version", "0");
-        // V13.2: Значения по умолчанию при первом запуске
         if (!savedVersion.equals("10.5")) {
             prefs.edit()
                 .putString("app_version", "10.5")
@@ -202,10 +205,10 @@ public class MainActivity extends AppCompatActivity {
                 .putBoolean("ptt_latch_enabled", true)
                 .putBoolean("sound_enabled", false)
                 .putFloat("MicUsildouble", 5.0f)
-                .putBoolean("onUsilMic", false) // V13.2: выключено
+                .putBoolean("onUsilMic", false)
                 .putFloat("DinUsildouble", 5.0f)
-                .putBoolean("onUsilDin", false) // V13.2: выключено
-                .putBoolean("onAgc", true)     // V13.2: включено
+                .putBoolean("onUsilDin", false)
+                .putBoolean("onAgc", true)
                 .putBoolean("show_list_names", false)
                 .putBoolean("ask_password", true)
                 .putBoolean("show_power_button", false)
@@ -215,6 +218,7 @@ public class MainActivity extends AppCompatActivity {
         pttLatchEnabled = prefs.getBoolean("ptt_latch_enabled", true);
         showListNames = prefs.getBoolean("show_list_names", false);
         isMode144 = prefs.getBoolean("mode_144_145", false);
+        isSimplex = prefs.getBoolean("simplex", true); // V13.3
 
         checkAndRequestPermissions();
 
@@ -344,6 +348,7 @@ public class MainActivity extends AppCompatActivity {
         btnMenu.setOnClickListener(v -> {
             beep();
             isMode144 = prefs.getBoolean("mode_144_145", false);
+            isSimplex = prefs.getBoolean("simplex", true); // Обновляем флаг
             startActivity(new Intent(this, SettingsActivity.class));
         });
 
@@ -463,9 +468,16 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // V13.3: Обработка PTT с проверкой на симплекс
     private boolean handlePttTouch(View v, MotionEvent event) {
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
+                // V13.3: Проверка "канал занят" для симплекса
+                if (isSimplex && isChannelBusy) {
+                    Toast.makeText(this, "Канал занят (симплекс)", Toast.LENGTH_SHORT).show();
+                    return true; // Блокируем нажатие
+                }
+
                 pttDownTime = System.currentTimeMillis();
                 pttHoldActive = false;
                 if (isScanning) stopScanning();
@@ -838,6 +850,7 @@ public class MainActivity extends AppCompatActivity {
         pttLatchEnabled = prefs.getBoolean("ptt_latch_enabled", true);
         showListNames = prefs.getBoolean("show_list_names", false);
         isMode144 = prefs.getBoolean("mode_144_145", false);
+        isSimplex = prefs.getBoolean("simplex", true); // V13.3
 
         updateUI();
         updateServerIpVisibility();
