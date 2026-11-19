@@ -133,7 +133,6 @@ public class MainActivity extends AppCompatActivity {
                 voxReleaseHandler.removeCallbacks(voxReleaseRunnable);
                 if (!isVoxTransmitting) {
                     isVoxTransmitting = true;
-                    // Отправляем команду в сервис, что VOX активен
                     sendBroadcast(new Intent("PMR_VOX_START"));
                     AppLog.add("VOX: Начало передачи (уровень=" + level + ", порог=" + voxThreshold + ")");
                 }
@@ -288,6 +287,11 @@ public class MainActivity extends AppCompatActivity {
                 Toast.makeText(this, "Ошибка запуска службы: " + e.getMessage(), Toast.LENGTH_LONG).show();
                 AppLog.add("MainActivity: ОШИБКА startService — " + e.getMessage());
             }
+        }
+
+        // V13.6: Включаем/выключаем мониторинг VOX при старте
+        if (isVoxEnabled) {
+            new Handler(Looper.getMainLooper()).postDelayed(() -> sendBroadcast(new Intent("PMR_VOX_MONITORING_ON")), 1000);
         }
     }
 
@@ -458,10 +462,17 @@ public class MainActivity extends AppCompatActivity {
 
         btnMenu.setOnClickListener(v -> {
             beep();
+            boolean wasVox = isVoxEnabled;
             isMode144 = prefs.getBoolean("mode_144_145", false);
             isSimplex = prefs.getBoolean("simplex", true);
             isVoxEnabled = prefs.getBoolean("vox_enabled", false);
             voxThreshold = prefs.getInt("vox_threshold", 40);
+            
+            // V13.6: Применяем изменения VOX при возврате из настроек
+            if (wasVox != isVoxEnabled) {
+                sendBroadcast(new Intent(isVoxEnabled ? "PMR_VOX_MONITORING_ON" : "PMR_VOX_MONITORING_OFF"));
+            }
+            
             startActivity(new Intent(this, SettingsActivity.class));
         });
 
@@ -976,6 +987,13 @@ public class MainActivity extends AppCompatActivity {
 
         if (wakeLock != null && !wakeLock.isHeld()) wakeLock.acquire();
         if (mediaSession != null) mediaSession.setActive(true);
+
+        // V13.6: Включаем/выключаем мониторинг VOX при возврате
+        if (isVoxEnabled) {
+            sendBroadcast(new Intent("PMR_VOX_MONITORING_ON"));
+        } else {
+            sendBroadcast(new Intent("PMR_VOX_MONITORING_OFF"));
+        }
     }
 
     @Override

@@ -40,24 +40,32 @@ public class PmrService extends Service {
                 boolean simplex = isSimplex();
                 if (audioEngine != null) {
                     if (simplex) audioEngine.stopPlaying();
-                    audioEngine.setPttActive(true); // V13.6
+                    audioEngine.setPttActive(true);
                     audioEngine.startRecording();
                 }
             } else if ("PMR_STOP_RECORDING".equals(action)) {
                 boolean simplex = isSimplex();
                 if (audioEngine != null) {
-                    audioEngine.setPttActive(false); // V13.6
+                    audioEngine.setPttActive(false);
                     audioEngine.stopRecording();
                     if (simplex) audioEngine.startPlaying();
                 }
-            } else if ("PMR_VOX_START".equals(action)) { // V13.6
+            } else if ("PMR_VOX_START".equals(action)) {
                 if (audioEngine != null) {
                     audioEngine.setVoxActive(true);
                     audioEngine.startRecording();
                 }
-            } else if ("PMR_VOX_STOP".equals(action)) { // V13.6
+            } else if ("PMR_VOX_STOP".equals(action)) {
                 if (audioEngine != null) {
                     audioEngine.setVoxActive(false);
+                }
+            } else if ("PMR_VOX_MONITORING_ON".equals(action)) {
+                if (audioEngine != null) {
+                    audioEngine.setVoxMonitoring(true);
+                }
+            } else if ("PMR_VOX_MONITORING_OFF".equals(action)) {
+                if (audioEngine != null) {
+                    audioEngine.setVoxMonitoring(false);
                 }
             } else if (ACTION_STOP.equals(action)) {
                 stopForeground(true);
@@ -76,6 +84,8 @@ public class PmrService extends Service {
         filter.addAction("PMR_STOP_RECORDING");
         filter.addAction("PMR_VOX_START");
         filter.addAction("PMR_VOX_STOP");
+        filter.addAction("PMR_VOX_MONITORING_ON");
+        filter.addAction("PMR_VOX_MONITORING_OFF");
         filter.addAction(ACTION_STOP);
         registerReceiver(controlReceiver, filter);
 
