@@ -1,6 +1,7 @@
 package com.pmr.admin;
 
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.media.AudioRecord;
 import android.media.AudioTrack;
@@ -19,7 +20,7 @@ public class AudioEngine {
     private static final int SAMPLE_RATE_8K = 8000;
     private static final int SLOTS_PER_FORMAT = 20;
     private static final float DEFAULT_VOLUME = 1.7f;
-    
+
     private final Context appCtx;
     private final PmrSocket pmrSocket;
     private final G711Ua g711 = new G711Ua();
@@ -30,13 +31,12 @@ public class AudioEngine {
     private volatile boolean isPlaying = false;
     private volatile int rej = 22;
 
-    // Настройки усиления
     private boolean onUsilMic = false;
     private boolean onAgc = false;
     private float micGain = 2.0f;
     private boolean onUsilDin = false;
     private float dinGain = 0.4f;
-    private double maxMic = 0.0; // текущий коэффициент АРУ
+    private double maxMic = 0.0;
 
     public AudioEngine(Context ctx, PmrSocket sock) {
         this.appCtx = ctx;
@@ -67,7 +67,6 @@ public class AudioEngine {
         AppLog.add("AudioEngine: applyGain mic=" + micGain + ", agc=" + onAgc + ", din=" + dinGain);
     }
 
-    // Аналог Delim_ili_Compress из admin.c
     private void applyAgc(short[] pcm, int len) {
         int max = 0;
         for (int i = 0; i < len; i++) {
@@ -75,16 +74,13 @@ public class AudioEngine {
             if (max < val) max = val;
         }
         double r = 0x7FFF;
-        if (max == 0) max = 1; // защита от деления на 0
+        if (max == 0) max = 1;
         double delit = r / max;
-        
         if (delit < maxMic) maxMic = delit;
         if (delit > maxMic) {
-            // Плавное нарастание
             if (micGain > 0.0 && maxMic < micGain) maxMic = maxMic + 0.1;
         }
         if (maxMic > micGain) maxMic = micGain;
-
         for (int i = 0; i < len; i++) {
             double rVal = pcm[i] * maxMic;
             if (rVal > 32767) rVal = 32767;
@@ -274,16 +270,32 @@ public class AudioEngine {
         int cmd;
         int payloadLen;
         byte[] payload;
-        short[] pcm16Short = new short[BUF_ELEMENTS]; // для АРУ
+        short[] pcm16Short = new short[BUF_ELEMENTS];
         byte[] pcm16 = new byte[640];
         byte[] g711buf = new byte[BUF_ELEMENTS];
         int packetCount = 0;
-        
+
         while (this.isRecording) {
             try {
                 int read = this.recorder.read(pcm16, 0, pcm16.length);
                 if (read > 0) {
-                    // Применение статического усиления
+                    // V13.5: Расчет уровня громкости (VU meter)
+                    if (read >= 2) {
+                        int numSamples = read / 2;
+                        long sum = 0;
+                        for (int i = 0; i < numSamples; i++) {
+                            int sample = (short) ((pcm16[i*2] & 0xFF) | (pcm16[i*2+1] << 8));
+                            sum += Math.abs(sample);
+                        }
+                        int avg = (int) (sum / numSamples);
+                        int levelPercent = (int) ((avg / 32767.0) * 100);
+                        
+                        // Отправляем уровень в MainActivity (через broadcast)
+                        Intent voxIntent = new Intent("PMR_VOX_LEVEL");
+                        voxIntent.putExtra("level", levelPercent);
+                        appCtx.sendBroadcast(voxIntent);
+                    }
+
                     if (onUsilMic) {
                         for (int i = 0; i < read; i += 2) {
                             int sample = (short) ((pcm16[i] & 0xFF) | (pcm16[i+1] << 8));
@@ -294,8 +306,6 @@ public class AudioEngine {
                             pcm16[i+1] = (byte) ((sample >> 8) & 0xFF);
                         }
                     }
-
-                    // Применение АРУ (если включено)
                     if (onAgc) {
                         int count = read / 2;
                         for (int i = 0; i < count; i++) {

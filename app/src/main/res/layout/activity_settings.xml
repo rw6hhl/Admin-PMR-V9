@@ -160,6 +160,41 @@
             android:orientation="vertical"
             android:visibility="gone">
 
+            <!-- V13.5: Настройки VOX -->
+            <CheckBox
+                android:id="@+id/cbVox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Включить VOX (авто-передача)"
+                android:textColor="@color/colortextabout"
+                android:checked="false"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="8dp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="16dp"
+                android:orientation="horizontal">
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Порог VOX (5-100) ="
+                    android:textColor="@color/colortextabout"
+                    android:textSize="18sp" />
+                <EditText
+                    android:id="@+id/editVoxThreshold"
+                    android:layout_width="120dp"
+                    android:layout_height="wrap_content"
+                    android:backgroundTint="@color/colortextabout"
+                    android:inputType="number"
+                    android:textColor="@color/colortextabout"
+                    android:textSize="18sp" />
+            </LinearLayout>
+            <!-- /V13.5 -->
+
             <CheckBox
                 android:id="@+id/cbMode144"
                 android:layout_width="match_parent"

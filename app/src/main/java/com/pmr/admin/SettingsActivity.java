@@ -31,12 +31,14 @@ public class SettingsActivity extends AppCompatActivity {
     private SharedPreferences prefs;
     private EditText editMailIndex, editPriznak, editPortPrm, editPortPrd, editIp;
     private EditText editUsilMic, editUsilDin;
+    private EditText editVoxThreshold; // V13.5
     private CheckBox cbUsilMic, cbUsilDin, cbAgc;
     private LinearLayout layoutServerSettings, layoutParamsSettings;
     private Button btnChanList, btnLogs, btnLoadList;
     private CheckBox cbVerboseLog, cbSoundEnabled, cbAskPassword, cbPttLatch, cbShowListNames;
     private CheckBox cbSimplex, cbShowPowerButton, cbShowServerIp;
-    private CheckBox cbMode144; // V13.0
+    private CheckBox cbMode144;
+    private CheckBox cbVox; // V13.5
 
     private final ActivityResultLauncher<String[]> openListLauncher =
             registerForActivityResult(new ActivityResultContracts.OpenDocument(), uri -> {
@@ -118,7 +120,7 @@ public class SettingsActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_settings);
-        AppLog.add("SettingsActivity: onCreate (V13.0)");
+        AppLog.add("SettingsActivity: onCreate (V13.5)");
 
         prefs = getSharedPreferences("pmr_prefs", MODE_PRIVATE);
 
@@ -140,7 +142,10 @@ public class SettingsActivity extends AppCompatActivity {
         cbSimplex = findViewById(R.id.cbSimplex);
         cbShowPowerButton = findViewById(R.id.cbShowPowerButton);
         cbShowServerIp = findViewById(R.id.cbShowServerIp);
-        cbMode144 = findViewById(R.id.cbMode144); // V13.0
+        cbMode144 = findViewById(R.id.cbMode144);
+        
+        cbVox = findViewById(R.id.cbVox); // V13.5
+        editVoxThreshold = findViewById(R.id.editVoxThreshold); // V13.5
 
         cbUsilMic = findViewById(R.id.cbUsilMic);
         editUsilMic = findViewById(R.id.editUsilMic);
@@ -160,10 +165,13 @@ public class SettingsActivity extends AppCompatActivity {
         cbUsilDin.setChecked(prefs.getBoolean("onUsilDin", false));
         editUsilDin.setText(String.valueOf(prefs.getFloat("DinUsildouble", 5.0f)));
 
-        // V13.0: Состояние режима 144-145
-        if (cbMode144 != null) {
-            cbMode144.setChecked(prefs.getBoolean("mode_144_145", false));
-            cbMode144.setOnCheckedChangeListener((b, checked) -> prefs.edit().putBoolean("mode_144_145", checked).apply());
+        // V13.5: Загрузка настроек VOX
+        if (cbVox != null) {
+            cbVox.setChecked(prefs.getBoolean("vox_enabled", false));
+            cbVox.setOnCheckedChangeListener((b, checked) -> prefs.edit().putBoolean("vox_enabled", checked).apply());
+        }
+        if (editVoxThreshold != null) {
+            editVoxThreshold.setText(String.valueOf(prefs.getInt("vox_threshold", 40)));
         }
 
         if (cbPttLatch != null) {
@@ -200,6 +208,10 @@ public class SettingsActivity extends AppCompatActivity {
         if (cbSoundEnabled != null) {
             cbSoundEnabled.setChecked(prefs.getBoolean("sound_enabled", false));
             cbSoundEnabled.setOnCheckedChangeListener((b, checked) -> prefs.edit().putBoolean("sound_enabled", checked).apply());
+        }
+        if (cbMode144 != null) {
+            cbMode144.setChecked(prefs.getBoolean("mode_144_145", false));
+            cbMode144.setOnCheckedChangeListener((b, checked) -> prefs.edit().putBoolean("mode_144_145", checked).apply());
         }
 
         boolean isAdmin = prefs.getBoolean("is_admin_mode", false);
@@ -304,6 +316,16 @@ public class SettingsActivity extends AppCompatActivity {
             editor.putFloat("DinUsildouble", dinVal);
         } catch (Exception ignored) {}
         editor.putBoolean("onUsilDin", cbUsilDin.isChecked());
+
+        // V13.5: Сохранение VOX
+        if (editVoxThreshold != null) {
+            try {
+                int voxVal = Integer.parseInt(editVoxThreshold.getText().toString());
+                if (voxVal < 5) voxVal = 5;
+                if (voxVal > 100) voxVal = 100;
+                editor.putInt("vox_threshold", voxVal);
+            } catch (Exception ignored) {}
+        }
 
         editor.apply();
 

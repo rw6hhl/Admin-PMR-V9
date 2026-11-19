@@ -69,7 +69,7 @@ public class MainActivity extends AppCompatActivity {
     private boolean soundEnabled = true;
 
     private GestureDetector gestureDetector;
-    private MediaSessionCompat mediaSession; // V13.4: Для кнопок наушников
+    private MediaSessionCompat mediaSession;
 
     private boolean pttLatchEnabled = true;
     private boolean pttLatched = false;
@@ -77,6 +77,13 @@ public class MainActivity extends AppCompatActivity {
     private boolean pttHoldActive = false;
     private boolean pttTapPending = false;
     private boolean blinkState = false;
+
+    // V13.5: Переменные VOX
+    private boolean isVoxEnabled = false;
+    private int voxThreshold = 40;
+    private boolean isVoxTransmitting = false;
+    private Handler voxReleaseHandler = new Handler(Looper.getMainLooper());
+    private Runnable voxReleaseRunnable;
 
     private int lastUserCount = -1;
     private boolean showListNames = false;
@@ -115,6 +122,36 @@ public class MainActivity extends AppCompatActivity {
         if (!pttTapPending) return;
         pttTapPending = false;
         if (pttLatched) stopPttLatch();
+    };
+
+    // V13.5: Обработчик уровня VOX
+    private BroadcastReceiver voxReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (!isVoxEnabled) return;
+            int level = intent.getIntExtra("level", 0);
+            
+            if (level >= voxThreshold) {
+                // Если уровень выше порога — начинаем передачу или сбрасываем таймер остановки
+                voxReleaseHandler.removeCallbacks(voxReleaseRunnable);
+                if (!isVoxTransmitting) {
+                    isVoxTransmitting = true;
+                    sendBroadcast(new Intent("PMR_START_RECORDING"));
+                    AppLog.add("VOX: Начало передачи (уровень=" + level + ", порог=" + voxThreshold + ")");
+                }
+            } else {
+                // Если уровень упал, запускаем таймер на 2 секунды
+                if (isVoxTransmitting && voxReleaseRunnable == null) {
+                    voxReleaseRunnable = () -> {
+                        isVoxTransmitting = false;
+                        sendBroadcast(new Intent("PMR_STOP_RECORDING"));
+                        AppLog.add("VOX: Конец передачи (тишина 2 сек)");
+                        voxReleaseRunnable = null;
+                    };
+                    voxReleaseHandler.postDelayed(voxReleaseRunnable, 2000);
+                }
+            }
+        }
     };
 
     private BroadcastReceiver voiceReceiver = new BroadcastReceiver() {
@@ -225,7 +262,7 @@ public class MainActivity extends AppCompatActivity {
         isSimplex = prefs.getBoolean("simplex", true);
 
         checkAndRequestPermissions();
-        setupMediaSession(); // V13.4: Инициализация MediaSession
+        setupMediaSession();
 
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
@@ -255,7 +292,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // V13.4: Настройка MediaSession для перехвата кнопок наушников
     private void setupMediaSession() {
         mediaSession = new MediaSessionCompat(this, "PMR_PTT_SESSION");
         mediaSession.setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS);
@@ -273,13 +309,10 @@ public class MainActivity extends AppCompatActivity {
                 int keyCode = event.getKeyCode();
                 int action = event.getAction();
 
-                // Обрабатываем центральную кнопку гарнитуры или Play/Pause
                 if (keyCode == KeyEvent.KEYCODE_HEADSETHOOK || keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
                     if (action == KeyEvent.ACTION_DOWN) {
-                        // Нажатие
                         handlePttButtonPress();
                     } else if (action == KeyEvent.ACTION_UP) {
-                        // Отпускание
                         handlePttButtonRelease();
                     }
                     return true;
@@ -290,7 +323,6 @@ public class MainActivity extends AppCompatActivity {
         mediaSession.setActive(true);
     }
 
-    // V13.4: Обработка нажатия кнопки наушников (аналог ACTION_DOWN на экране)
     private void handlePttButtonPress() {
         if (isSimplex && isChannelBusy) {
             Toast.makeText(this, "Канал занят (симплекс)", Toast.LENGTH_SHORT).show();
@@ -303,10 +335,8 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, "Включите программу", Toast.LENGTH_SHORT).show();
             return;
         }
-        // Логика "удержания" сработает, когда придет ACTION_UP, если прошло >150мс
     }
 
-    // V13.4: Обработка отпускания кнопки наушников (аналог ACTION_UP)
     private void handlePttButtonRelease() {
         long duration = System.currentTimeMillis() - pttDownTime;
         if (!PmrService.isRunning) return;
@@ -318,25 +348,7 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        if (duration >= PTT_TAP_MAX_MS) {
-            // Долгое нажатие (hold)
-            if (!pttLatched) {
-                beep();
-                imgRed.setVisibility(View.VISIBLE);
-                sendBroadcast(new Intent("PMR_START_RECORDING"));
-                // Не отправляем сразу STOP, ждем ACTION_UP (который уже произошел)
-                // Но так как это UP, нужно остановить. 
-                // В данном случае мы эмулируем поведение: если нажали и держали, то начали передачу, а по отпусканию - остановили.
-                // Для этого нужно отправлять START_RECORDING в handlePttButtonPress (при ACTION_DOWN), но с задержкой.
-                // Проще: при отпускании, если это был hold, мы просто шлем STOP.
-            }
-            // Логика для hold в наушниках: при ACTION_DOWN мы не знаем, будет ли это hold.
-            // Поэтому используем таймер. Но для простоты, если это был короткий тап, обрабатываем двойной тап.
-            // Если долгий, то нужно было начать передачу в момент ACTION_DOWN + 150мс.
-        }
-
         if (duration < PTT_TAP_MAX_MS) {
-            // Короткий тап
             if (pttTapPending) {
                 cancelTapWaiting();
                 if (pttLatchEnabled) {
@@ -449,6 +461,8 @@ public class MainActivity extends AppCompatActivity {
             beep();
             isMode144 = prefs.getBoolean("mode_144_145", false);
             isSimplex = prefs.getBoolean("simplex", true);
+            isVoxEnabled = prefs.getBoolean("vox_enabled", false); // V13.5
+            voxThreshold = prefs.getInt("vox_threshold", 40); // V13.5
             startActivity(new Intent(this, SettingsActivity.class));
         });
 
@@ -949,6 +963,8 @@ public class MainActivity extends AppCompatActivity {
         showListNames = prefs.getBoolean("show_list_names", false);
         isMode144 = prefs.getBoolean("mode_144_145", false);
         isSimplex = prefs.getBoolean("simplex", true);
+        isVoxEnabled = prefs.getBoolean("vox_enabled", false);
+        voxThreshold = prefs.getInt("vox_threshold", 40);
 
         updateUI();
         updateServerIpVisibility();
@@ -957,6 +973,7 @@ public class MainActivity extends AppCompatActivity {
         registerReceiver(voiceReceiver, new IntentFilter("PMR_VOICE_RECEIVED"));
         registerReceiver(voiceEndReceiver, new IntentFilter("PMR_VOICE_END"));
         registerReceiver(usersReceiver, new IntentFilter("PMR_USERS_CHANGED"));
+        registerReceiver(voxReceiver, new IntentFilter("PMR_VOX_LEVEL")); // V13.5
 
         if (wakeLock != null && !wakeLock.isHeld()) wakeLock.acquire();
         if (mediaSession != null) mediaSession.setActive(true);
@@ -968,6 +985,7 @@ public class MainActivity extends AppCompatActivity {
         unregisterReceiver(voiceReceiver);
         try { unregisterReceiver(voiceEndReceiver); } catch (Exception ignored) {}
         try { unregisterReceiver(usersReceiver); } catch (Exception ignored) {}
+        try { unregisterReceiver(voxReceiver); } catch (Exception ignored) {} // V13.5
         if (mediaSession != null) mediaSession.setActive(false);
     }
 
