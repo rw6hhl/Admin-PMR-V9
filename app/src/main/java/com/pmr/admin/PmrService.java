@@ -23,19 +23,9 @@ public class PmrService extends Service {
     public static AudioEngine audioEngine;
     public static volatile boolean isRunning = false;
 
-    public static PmrSocket getPmrSocket() {
-        return pmrSocket;
-    }
-
-    public static void setChanListListener(PmrSocket.OnChanListListener listener) {
-        PmrSocket.setChanListListener(listener);
-    }
-
-    public static void setVoiceListener(PmrSocket.OnVoiceListener listener) {
-        if (pmrSocket != null) {
-            pmrSocket.setVoiceListener(listener);
-        }
-    }
+    public static PmrSocket getPmrSocket() { return pmrSocket; }
+    public static void setChanListListener(PmrSocket.OnChanListListener listener) { PmrSocket.setChanListListener(listener); }
+    public static void setVoiceListener(PmrSocket.OnVoiceListener listener) { if (pmrSocket != null) pmrSocket.setVoiceListener(listener); }
 
     private boolean isSimplex() {
         SharedPreferences prefs = getSharedPreferences("pmr_prefs", MODE_PRIVATE);
@@ -48,26 +38,28 @@ public class PmrService extends Service {
             String action = intent.getAction();
             if ("PMR_START_RECORDING".equals(action)) {
                 boolean simplex = isSimplex();
-                AppLog.add("PmrService: PMR_START_RECORDING → startRecording (simplex=" + simplex + ")");
                 if (audioEngine != null) {
-                    if (simplex) {
-                        AppLog.add("PmrService: simplex → stopPlaying перед startRecording");
-                        audioEngine.stopPlaying();
-                    }
+                    if (simplex) audioEngine.stopPlaying();
+                    audioEngine.setPttActive(true); // V13.6
                     audioEngine.startRecording();
                 }
             } else if ("PMR_STOP_RECORDING".equals(action)) {
                 boolean simplex = isSimplex();
-                AppLog.add("PmrService: PMR_STOP_RECORDING → stopRecording (simplex=" + simplex + ")");
                 if (audioEngine != null) {
+                    audioEngine.setPttActive(false); // V13.6
                     audioEngine.stopRecording();
-                    if (simplex) {
-                        AppLog.add("PmrService: simplex → startPlaying после stopRecording");
-                        audioEngine.startPlaying();
-                    }
+                    if (simplex) audioEngine.startPlaying();
+                }
+            } else if ("PMR_VOX_START".equals(action)) { // V13.6
+                if (audioEngine != null) {
+                    audioEngine.setVoxActive(true);
+                    audioEngine.startRecording();
+                }
+            } else if ("PMR_VOX_STOP".equals(action)) { // V13.6
+                if (audioEngine != null) {
+                    audioEngine.setVoxActive(false);
                 }
             } else if (ACTION_STOP.equals(action)) {
-                AppLog.add("PmrService: ACTION_STOP — остановка сервиса");
                 stopForeground(true);
                 stopSelf();
             }
@@ -77,11 +69,13 @@ public class PmrService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
-        AppLog.add("PmrService: onCreate — старт V10.4");
+        AppLog.add("PmrService: onCreate — старт V13.6");
 
         IntentFilter filter = new IntentFilter();
         filter.addAction("PMR_START_RECORDING");
         filter.addAction("PMR_STOP_RECORDING");
+        filter.addAction("PMR_VOX_START");
+        filter.addAction("PMR_VOX_STOP");
         filter.addAction(ACTION_STOP);
         registerReceiver(controlReceiver, filter);
 
@@ -94,18 +88,16 @@ public class PmrService extends Service {
         createChannel();
         startForeground(NOTIF_ID, buildNotification());
         isRunning = true;
-        AppLog.add("PmrService: служба запущена, audioEngine и pmrSocket созданы, isRunning=true, simplex=" + isSimplex());
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        AppLog.add("PmrService: onStartCommand START_NOT_STICKY");
         return START_NOT_STICKY;
     }
 
     @Override
     public void onDestroy() {
-        AppLog.add("PmrService: onDestroy");
+        super.onDestroy();
         isRunning = false;
         try { unregisterReceiver(controlReceiver); } catch (Exception ignored) {}
         if (audioEngine != null) {
@@ -116,8 +108,6 @@ public class PmrService extends Service {
         pmrSocket = null;
         audioEngine = null;
         stopForeground(true);
-        super.onDestroy();
-        AppLog.add("PmrService: onDestroy — isRunning=false");
     }
 
     @Override
@@ -125,10 +115,7 @@ public class PmrService extends Service {
 
     private void createChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel ch = new NotificationChannel(
-                    CHANNEL_ID,
-                    getString(R.string.app_name),
-                    NotificationManager.IMPORTANCE_LOW);
+            NotificationChannel ch = new NotificationChannel(CHANNEL_ID, getString(R.string.app_name), NotificationManager.IMPORTANCE_LOW);
             NotificationManager nm = getSystemService(NotificationManager.class);
             if (nm != null) nm.createNotificationChannel(ch);
         }
@@ -136,13 +123,11 @@ public class PmrService extends Service {
 
     private Notification buildNotification() {
         Intent openIntent = new Intent(this, MainActivity.class);
-        PendingIntent piOpen = PendingIntent.getActivity(
-                this, 0, openIntent, PendingIntent.FLAG_IMMUTABLE);
+        PendingIntent piOpen = PendingIntent.getActivity(this, 0, openIntent, PendingIntent.FLAG_IMMUTABLE);
 
         Intent stopIntent = new Intent(this, PmrService.class);
         stopIntent.setAction(ACTION_STOP);
-        PendingIntent piStop = PendingIntent.getService(
-                this, 1, stopIntent, PendingIntent.FLAG_IMMUTABLE);
+        PendingIntent piStop = PendingIntent.getService(this, 1, stopIntent, PendingIntent.FLAG_IMMUTABLE);
 
         return new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle(getString(R.string.app_name))

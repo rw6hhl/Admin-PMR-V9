@@ -78,7 +78,6 @@ public class MainActivity extends AppCompatActivity {
     private boolean pttTapPending = false;
     private boolean blinkState = false;
 
-    // V13.5: Переменные VOX
     private boolean isVoxEnabled = false;
     private int voxThreshold = 40;
     private boolean isVoxTransmitting = false;
@@ -124,7 +123,6 @@ public class MainActivity extends AppCompatActivity {
         if (pttLatched) stopPttLatch();
     };
 
-    // V13.5: Обработчик уровня VOX
     private BroadcastReceiver voxReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -132,20 +130,19 @@ public class MainActivity extends AppCompatActivity {
             int level = intent.getIntExtra("level", 0);
             
             if (level >= voxThreshold) {
-                // Если уровень выше порога — начинаем передачу или сбрасываем таймер остановки
                 voxReleaseHandler.removeCallbacks(voxReleaseRunnable);
                 if (!isVoxTransmitting) {
                     isVoxTransmitting = true;
-                    sendBroadcast(new Intent("PMR_START_RECORDING"));
+                    // Отправляем команду в сервис, что VOX активен
+                    sendBroadcast(new Intent("PMR_VOX_START"));
                     AppLog.add("VOX: Начало передачи (уровень=" + level + ", порог=" + voxThreshold + ")");
                 }
             } else {
-                // Если уровень упал, запускаем таймер на 2 секунды
                 if (isVoxTransmitting && voxReleaseRunnable == null) {
                     voxReleaseRunnable = () -> {
                         isVoxTransmitting = false;
-                        sendBroadcast(new Intent("PMR_STOP_RECORDING"));
-                        AppLog.add("VOX: Конец передачи (тишина 2 сек)");
+                        sendBroadcast(new Intent("PMR_VOX_STOP"));
+                        AppLog.add("VOX: Конец передачи (тишина)");
                         voxReleaseRunnable = null;
                     };
                     voxReleaseHandler.postDelayed(voxReleaseRunnable, 2000);
@@ -260,6 +257,8 @@ public class MainActivity extends AppCompatActivity {
         showListNames = prefs.getBoolean("show_list_names", false);
         isMode144 = prefs.getBoolean("mode_144_145", false);
         isSimplex = prefs.getBoolean("simplex", true);
+        isVoxEnabled = prefs.getBoolean("vox_enabled", false);
+        voxThreshold = prefs.getInt("vox_threshold", 40);
 
         checkAndRequestPermissions();
         setupMediaSession();
@@ -461,8 +460,8 @@ public class MainActivity extends AppCompatActivity {
             beep();
             isMode144 = prefs.getBoolean("mode_144_145", false);
             isSimplex = prefs.getBoolean("simplex", true);
-            isVoxEnabled = prefs.getBoolean("vox_enabled", false); // V13.5
-            voxThreshold = prefs.getInt("vox_threshold", 40); // V13.5
+            isVoxEnabled = prefs.getBoolean("vox_enabled", false);
+            voxThreshold = prefs.getInt("vox_threshold", 40);
             startActivity(new Intent(this, SettingsActivity.class));
         });
 
@@ -973,7 +972,7 @@ public class MainActivity extends AppCompatActivity {
         registerReceiver(voiceReceiver, new IntentFilter("PMR_VOICE_RECEIVED"));
         registerReceiver(voiceEndReceiver, new IntentFilter("PMR_VOICE_END"));
         registerReceiver(usersReceiver, new IntentFilter("PMR_USERS_CHANGED"));
-        registerReceiver(voxReceiver, new IntentFilter("PMR_VOX_LEVEL")); // V13.5
+        registerReceiver(voxReceiver, new IntentFilter("PMR_VOX_LEVEL"));
 
         if (wakeLock != null && !wakeLock.isHeld()) wakeLock.acquire();
         if (mediaSession != null) mediaSession.setActive(true);
@@ -985,7 +984,7 @@ public class MainActivity extends AppCompatActivity {
         unregisterReceiver(voiceReceiver);
         try { unregisterReceiver(voiceEndReceiver); } catch (Exception ignored) {}
         try { unregisterReceiver(usersReceiver); } catch (Exception ignored) {}
-        try { unregisterReceiver(voxReceiver); } catch (Exception ignored) {} // V13.5
+        try { unregisterReceiver(voxReceiver); } catch (Exception ignored) {}
         if (mediaSession != null) mediaSession.setActive(false);
     }
 

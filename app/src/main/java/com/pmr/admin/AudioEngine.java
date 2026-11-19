@@ -31,6 +31,11 @@ public class AudioEngine {
     private volatile boolean isPlaying = false;
     private volatile int rej = 22;
 
+    // V13.6: Мониторинг VOX
+    private volatile boolean isVoxMonitoring = false;
+    private volatile boolean isVoxActive = false;
+    private volatile boolean isPttActive = false;
+
     private boolean onUsilMic = false;
     private boolean onAgc = false;
     private float micGain = 2.0f;
@@ -95,6 +100,18 @@ public class AudioEngine {
     public boolean isPlaying() { return this.isPlaying; }
     public boolean isDuplex() { return true; }
 
+    // V13.6: Включение/выключение мониторинга VOX
+    public void setVoxMonitoring(boolean enabled) {
+        this.isVoxMonitoring = enabled;
+        if (enabled && !isRecording) {
+            startRecording(); // Запускаем фоновый захват для VOX
+        } else if (!enabled && !isPttActive) {
+            stopRecording(); // Если VOX выключен и PTT нет — стоп
+        }
+    }
+    public void setVoxActive(boolean active) { this.isVoxActive = active; }
+    public void setPttActive(boolean active) { this.isPttActive = active; }
+
     public void pushToRingBuffer(byte[] packet) {
         if (packet != null && packet.length >= 324 && isPlaying) {
             int client = (packet[2] & 0xFF) | ((packet[3] & 0xFF) << 8);
@@ -122,7 +139,6 @@ public class AudioEngine {
             }
         }
         this.isPlaying = true;
-        AppLog.add("AudioEngine: startPlaying, volume=" + vol + ", slots=" + this.tracks.length);
     }
 
     public void stopPlaying() {
@@ -221,10 +237,8 @@ public class AudioEngine {
     public void startRecording() {
         final int sampleRate;
         int bufSize;
-        if (this.isRecording) {
-            AppLog.add("AudioEngine: startRecording — уже идёт запись, пропуск");
-            return;
-        }
+        if (this.isRecording) return;
+
         loadGainSettings();
         if (this.rej == 22 || this.rej == 21 || this.rej == 19) {
             sampleRate = 16000;
@@ -246,7 +260,6 @@ public class AudioEngine {
             }, "pmr-rec");
             this.recorderThread = thread;
             thread.start();
-            AppLog.add("AudioEngine: startRecording — rate=" + sampleRate + ", rej=" + rej + ", mic=" + onUsilMic + "/" + micGain + ", agc=" + onAgc);
         } catch (Exception e) {
             AppLog.add("AudioEngine: ОШИБКА startRecording — " + e);
         }
@@ -263,7 +276,6 @@ public class AudioEngine {
             this.recorder = null;
         }
         this.recorderThread = null;
-        AppLog.add("AudioEngine: stopRecording");
     }
 
     private void lambda$startRecording$0(int sampleRate) {
@@ -279,7 +291,7 @@ public class AudioEngine {
             try {
                 int read = this.recorder.read(pcm16, 0, pcm16.length);
                 if (read > 0) {
-                    // V13.5: Расчет уровня громкости (VU meter)
+                    // V13.6: Всегда считаем уровень для VOX
                     if (read >= 2) {
                         int numSamples = read / 2;
                         long sum = 0;
@@ -290,10 +302,14 @@ public class AudioEngine {
                         int avg = (int) (sum / numSamples);
                         int levelPercent = (int) ((avg / 32767.0) * 100);
                         
-                        // Отправляем уровень в MainActivity (через broadcast)
                         Intent voxIntent = new Intent("PMR_VOX_LEVEL");
                         voxIntent.putExtra("level", levelPercent);
                         appCtx.sendBroadcast(voxIntent);
+                    }
+
+                    // Отправка звука только если PTT активен или VOX сработал
+                    if (!isPttActive && !isVoxActive) {
+                        continue; // Пропускаем отправку
                     }
 
                     if (onUsilMic) {
@@ -365,7 +381,7 @@ public class AudioEngine {
                     mainPacket[0] = (byte) cmd;
                     mainPacket[1] = 0;
                     mainPacket[2] = (byte) (PmrSocket.Priznak_pmr & 255);
-                    mainPacket[3] = (byte) ((PmrSocket.Priznak_pmr >> 8) & 255);
+                    mainPacket[3] = (byte) ((Priznak_pmr >> 8) & 255);
                     System.arraycopy(payload, 0, mainPacket, 4, payloadLen);
                     
                     if (pmrSocket != null) pmrSocket.sendVoice(mainPacket, packet);
