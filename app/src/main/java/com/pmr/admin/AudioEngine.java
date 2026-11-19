@@ -381,7 +381,7 @@ public class AudioEngine {
                     mainPacket[0] = (byte) cmd;
                     mainPacket[1] = 0;
                     mainPacket[2] = (byte) (PmrSocket.Priznak_pmr & 255);
-                    mainPacket[3] = (byte) ((Priznak_pmr >> 8) & 255);
+                    mainPacket[3] = (byte) ((PmrSocket.Priznak_pmr >> 8) & 255);
                     System.arraycopy(payload, 0, mainPacket, 4, payloadLen);
                     
                     if (pmrSocket != null) pmrSocket.sendVoice(mainPacket, packet);
