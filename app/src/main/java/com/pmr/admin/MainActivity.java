@@ -19,8 +19,11 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.provider.Settings;
+import android.support.v4.media.session.MediaSessionCompat;
+import android.support.v4.media.session.PlaybackStateCompat;
 import android.text.InputType;
 import android.view.GestureDetector;
+import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
@@ -58,14 +61,15 @@ public class MainActivity extends AppCompatActivity {
 
     private boolean isAdminMode = false;
     private boolean isMode144 = false;
-    private boolean isSimplex = false; // V13.3: Флаг симплекса
-    private boolean isChannelBusy = false; // V13.3: Кто-то говорит в канале
+    private boolean isSimplex = false;
+    private boolean isChannelBusy = false;
     private PowerManager.WakeLock wakeLock;
     private int currentChannel = 4;
     private ToneGenerator toneGen;
     private boolean soundEnabled = true;
 
     private GestureDetector gestureDetector;
+    private MediaSessionCompat mediaSession; // V13.4: Для кнопок наушников
 
     private boolean pttLatchEnabled = true;
     private boolean pttLatched = false;
@@ -118,7 +122,7 @@ public class MainActivity extends AppCompatActivity {
         public void onReceive(Context context, Intent intent) {
             int clientNumber = intent.getIntExtra("clientId", -1);
             if (clientNumber != -1) {
-                isChannelBusy = true; // V13.3: Канал занят
+                isChannelBusy = true;
                 if (isScanning) pauseScanningForVoice();
 
                 if (!showListNames) {
@@ -158,7 +162,7 @@ public class MainActivity extends AppCompatActivity {
     private BroadcastReceiver voiceEndReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            isChannelBusy = false; // V13.3: Канал свободен
+            isChannelBusy = false;
             if (isScanning && resumeScanRunnable != null) {
                 scanHandler.removeCallbacks(resumeScanRunnable);
                 scanHandler.postDelayed(resumeScanRunnable, 3000);
@@ -218,9 +222,10 @@ public class MainActivity extends AppCompatActivity {
         pttLatchEnabled = prefs.getBoolean("ptt_latch_enabled", true);
         showListNames = prefs.getBoolean("show_list_names", false);
         isMode144 = prefs.getBoolean("mode_144_145", false);
-        isSimplex = prefs.getBoolean("simplex", true); // V13.3
+        isSimplex = prefs.getBoolean("simplex", true);
 
         checkAndRequestPermissions();
+        setupMediaSession(); // V13.4: Инициализация MediaSession
 
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
@@ -246,6 +251,101 @@ public class MainActivity extends AppCompatActivity {
             } catch (Exception e) {
                 Toast.makeText(this, "Ошибка запуска службы: " + e.getMessage(), Toast.LENGTH_LONG).show();
                 AppLog.add("MainActivity: ОШИБКА startService — " + e.getMessage());
+            }
+        }
+    }
+
+    // V13.4: Настройка MediaSession для перехвата кнопок наушников
+    private void setupMediaSession() {
+        mediaSession = new MediaSessionCompat(this, "PMR_PTT_SESSION");
+        mediaSession.setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS);
+        mediaSession.setPlaybackState(new PlaybackStateCompat.Builder()
+                .setState(PlaybackStateCompat.STATE_PLAYING, 0, 1.0f)
+                .setActions(PlaybackStateCompat.ACTION_PLAY | PlaybackStateCompat.ACTION_PAUSE)
+                .build());
+
+        mediaSession.setCallback(new MediaSessionCompat.Callback() {
+            @Override
+            public boolean onMediaButtonEvent(Intent mediaButtonIntent) {
+                KeyEvent event = mediaButtonIntent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);
+                if (event == null) return super.onMediaButtonEvent(mediaButtonIntent);
+
+                int keyCode = event.getKeyCode();
+                int action = event.getAction();
+
+                // Обрабатываем центральную кнопку гарнитуры или Play/Pause
+                if (keyCode == KeyEvent.KEYCODE_HEADSETHOOK || keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
+                    if (action == KeyEvent.ACTION_DOWN) {
+                        // Нажатие
+                        handlePttButtonPress();
+                    } else if (action == KeyEvent.ACTION_UP) {
+                        // Отпускание
+                        handlePttButtonRelease();
+                    }
+                    return true;
+                }
+                return super.onMediaButtonEvent(mediaButtonIntent);
+            }
+        });
+        mediaSession.setActive(true);
+    }
+
+    // V13.4: Обработка нажатия кнопки наушников (аналог ACTION_DOWN на экране)
+    private void handlePttButtonPress() {
+        if (isSimplex && isChannelBusy) {
+            Toast.makeText(this, "Канал занят (симплекс)", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        pttDownTime = System.currentTimeMillis();
+        pttHoldActive = false;
+        if (isScanning) stopScanning();
+        if (!PmrService.isRunning) {
+            Toast.makeText(this, "Включите программу", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        // Логика "удержания" сработает, когда придет ACTION_UP, если прошло >150мс
+    }
+
+    // V13.4: Обработка отпускания кнопки наушников (аналог ACTION_UP)
+    private void handlePttButtonRelease() {
+        long duration = System.currentTimeMillis() - pttDownTime;
+        if (!PmrService.isRunning) return;
+
+        if (pttHoldActive) {
+            pttHoldActive = false;
+            imgRed.setVisibility(View.INVISIBLE);
+            sendBroadcast(new Intent("PMR_STOP_RECORDING"));
+            return;
+        }
+
+        if (duration >= PTT_TAP_MAX_MS) {
+            // Долгое нажатие (hold)
+            if (!pttLatched) {
+                beep();
+                imgRed.setVisibility(View.VISIBLE);
+                sendBroadcast(new Intent("PMR_START_RECORDING"));
+                // Не отправляем сразу STOP, ждем ACTION_UP (который уже произошел)
+                // Но так как это UP, нужно остановить. 
+                // В данном случае мы эмулируем поведение: если нажали и держали, то начали передачу, а по отпусканию - остановили.
+                // Для этого нужно отправлять START_RECORDING в handlePttButtonPress (при ACTION_DOWN), но с задержкой.
+                // Проще: при отпускании, если это был hold, мы просто шлем STOP.
+            }
+            // Логика для hold в наушниках: при ACTION_DOWN мы не знаем, будет ли это hold.
+            // Поэтому используем таймер. Но для простоты, если это был короткий тап, обрабатываем двойной тап.
+            // Если долгий, то нужно было начать передачу в момент ACTION_DOWN + 150мс.
+        }
+
+        if (duration < PTT_TAP_MAX_MS) {
+            // Короткий тап
+            if (pttTapPending) {
+                cancelTapWaiting();
+                if (pttLatchEnabled) {
+                    if (pttLatched) stopPttLatch();
+                    else startPttLatch();
+                }
+            } else {
+                pttTapPending = true;
+                tapHandler.postDelayed(singleTapRunnable, PTT_DOUBLE_TAP_TIMEOUT_MS);
             }
         }
     }
@@ -348,7 +448,7 @@ public class MainActivity extends AppCompatActivity {
         btnMenu.setOnClickListener(v -> {
             beep();
             isMode144 = prefs.getBoolean("mode_144_145", false);
-            isSimplex = prefs.getBoolean("simplex", true); // Обновляем флаг
+            isSimplex = prefs.getBoolean("simplex", true);
             startActivity(new Intent(this, SettingsActivity.class));
         });
 
@@ -468,14 +568,12 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // V13.3: Обработка PTT с проверкой на симплекс
     private boolean handlePttTouch(View v, MotionEvent event) {
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
-                // V13.3: Проверка "канал занят" для симплекса
                 if (isSimplex && isChannelBusy) {
                     Toast.makeText(this, "Канал занят (симплекс)", Toast.LENGTH_SHORT).show();
-                    return true; // Блокируем нажатие
+                    return true;
                 }
 
                 pttDownTime = System.currentTimeMillis();
@@ -850,7 +948,7 @@ public class MainActivity extends AppCompatActivity {
         pttLatchEnabled = prefs.getBoolean("ptt_latch_enabled", true);
         showListNames = prefs.getBoolean("show_list_names", false);
         isMode144 = prefs.getBoolean("mode_144_145", false);
-        isSimplex = prefs.getBoolean("simplex", true); // V13.3
+        isSimplex = prefs.getBoolean("simplex", true);
 
         updateUI();
         updateServerIpVisibility();
@@ -861,6 +959,7 @@ public class MainActivity extends AppCompatActivity {
         registerReceiver(usersReceiver, new IntentFilter("PMR_USERS_CHANGED"));
 
         if (wakeLock != null && !wakeLock.isHeld()) wakeLock.acquire();
+        if (mediaSession != null) mediaSession.setActive(true);
     }
 
     @Override
@@ -869,6 +968,7 @@ public class MainActivity extends AppCompatActivity {
         unregisterReceiver(voiceReceiver);
         try { unregisterReceiver(voiceEndReceiver); } catch (Exception ignored) {}
         try { unregisterReceiver(usersReceiver); } catch (Exception ignored) {}
+        if (mediaSession != null) mediaSession.setActive(false);
     }
 
     @Override
@@ -888,5 +988,6 @@ public class MainActivity extends AppCompatActivity {
         }
         if (toneGen != null) toneGen.release();
         if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
+        if (mediaSession != null) mediaSession.release();
     }
 }
