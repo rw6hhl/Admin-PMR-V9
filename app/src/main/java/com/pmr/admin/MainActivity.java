@@ -52,6 +52,9 @@ public class MainActivity extends AppCompatActivity {
     private static final float PRESET_STROKE_WIDTH_DP = 2.5f;
     private static final int SCAN_DELAY_MS = 500;
 
+    // V13.7: Энергосбережение
+    private static final long SCREEN_OFF_DELAY_MS = 3 * 60 * 1000; // 3 минуты
+
     private SharedPreferences prefs;
     private TextView tvChannel, tvIndex, tvSpeakingId, tvVersion, tvActiveUsers;
     private TextView tvServerIp;
@@ -63,7 +66,9 @@ public class MainActivity extends AppCompatActivity {
     private boolean isMode144 = false;
     private boolean isSimplex = false;
     private boolean isChannelBusy = false;
+    private boolean isEnergySavingEnabled = false; // V13.7
     private PowerManager.WakeLock wakeLock;
+    private PowerManager.WakeLock screenLock; // V13.7
     private int currentChannel = 4;
     private ToneGenerator toneGen;
     private boolean soundEnabled = true;
@@ -98,6 +103,10 @@ public class MainActivity extends AppCompatActivity {
     private final Handler scanHandler = new Handler(Looper.getMainLooper());
     private Runnable scanRunnable;
     private Runnable resumeScanRunnable;
+
+    // V13.7: Энергосбережение
+    private final Handler screenOffHandler = new Handler(Looper.getMainLooper());
+    private Runnable screenOffRunnable;
 
     private final Handler speakingHandler = new Handler(Looper.getMainLooper());
     private final Runnable resetSpeakingId = () -> {
@@ -157,6 +166,7 @@ public class MainActivity extends AppCompatActivity {
             if (clientNumber != -1) {
                 isChannelBusy = true;
                 if (isScanning) pauseScanningForVoice();
+                if (isEnergySavingEnabled) wakeScreen(); // V13.7
 
                 if (!showListNames) {
                     String text = lastUserCount >= 0 ? String.valueOf(lastUserCount) : "";
@@ -249,6 +259,7 @@ public class MainActivity extends AppCompatActivity {
                 .putBoolean("show_list_names", false)
                 .putBoolean("ask_password", true)
                 .putBoolean("show_power_button", false)
+                .putBoolean("energy_saving", false)
                 .apply();
         }
 
@@ -258,6 +269,7 @@ public class MainActivity extends AppCompatActivity {
         isSimplex = prefs.getBoolean("simplex", true);
         isVoxEnabled = prefs.getBoolean("vox_enabled", false);
         voxThreshold = prefs.getInt("vox_threshold", 40);
+        isEnergySavingEnabled = prefs.getBoolean("energy_saving", false);
 
         checkAndRequestPermissions();
         setupMediaSession();
@@ -289,9 +301,13 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        // V13.6: Включаем/выключаем мониторинг VOX при старте
         if (isVoxEnabled) {
             new Handler(Looper.getMainLooper()).postDelayed(() -> sendBroadcast(new Intent("PMR_VOX_MONITORING_ON")), 1000);
+        }
+
+        // V13.7: Запускаем таймер энергосбережения
+        if (isEnergySavingEnabled) {
+            startScreenOffTimer();
         }
     }
 
@@ -467,12 +483,12 @@ public class MainActivity extends AppCompatActivity {
             isSimplex = prefs.getBoolean("simplex", true);
             isVoxEnabled = prefs.getBoolean("vox_enabled", false);
             voxThreshold = prefs.getInt("vox_threshold", 40);
-            
-            // V13.6: Применяем изменения VOX при возврате из настроек
+            isEnergySavingEnabled = prefs.getBoolean("energy_saving", false);
+
             if (wasVox != isVoxEnabled) {
                 sendBroadcast(new Intent(isVoxEnabled ? "PMR_VOX_MONITORING_ON" : "PMR_VOX_MONITORING_OFF"));
             }
-            
+
             startActivity(new Intent(this, SettingsActivity.class));
         });
 
@@ -963,6 +979,43 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // V13.7: Энергосбережение
+    private void startScreenOffTimer() {
+        if (!isEnergySavingEnabled) return;
+        screenOffHandler.removeCallbacks(screenOffRunnable);
+        screenOffRunnable = () -> {
+            AppLog.add("MainActivity: Энергосбережение — выключаем экран");
+            try {
+                if (screenLock != null && screenLock.isHeld()) screenLock.release();
+                screenLock = null;
+                // Выключаем экран через DevicePolicyManager (требует прав администратора устройства)
+                // Альтернатива: просто снимаем WakeLock (экран погаснет)
+                if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
+            } catch (Exception e) {
+                AppLog.add("MainActivity: Ошибка выключения экрана — " + e.getMessage());
+            }
+        };
+        screenOffHandler.postDelayed(screenOffRunnable, SCREEN_OFF_DELAY_MS);
+    }
+
+    private void wakeScreen() {
+        AppLog.add("MainActivity: Энергосбережение — включаем экран (пришел звук)");
+        screenOffHandler.removeCallbacks(screenOffRunnable);
+        try {
+            if (wakeLock == null || !wakeLock.isHeld()) {
+                PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+                if (pm != null) {
+                    wakeLock = pm.newWakeLock(
+                            PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP, "PMR::WakeLock");
+                    wakeLock.acquire();
+                }
+            }
+        } catch (Exception e) {
+            AppLog.add("MainActivity: Ошибка включения экрана — " + e.getMessage());
+        }
+        startScreenOffTimer();
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
@@ -975,6 +1028,7 @@ public class MainActivity extends AppCompatActivity {
         isSimplex = prefs.getBoolean("simplex", true);
         isVoxEnabled = prefs.getBoolean("vox_enabled", false);
         voxThreshold = prefs.getInt("vox_threshold", 40);
+        isEnergySavingEnabled = prefs.getBoolean("energy_saving", false);
 
         updateUI();
         updateServerIpVisibility();
@@ -988,11 +1042,15 @@ public class MainActivity extends AppCompatActivity {
         if (wakeLock != null && !wakeLock.isHeld()) wakeLock.acquire();
         if (mediaSession != null) mediaSession.setActive(true);
 
-        // V13.6: Включаем/выключаем мониторинг VOX при возврате
         if (isVoxEnabled) {
             sendBroadcast(new Intent("PMR_VOX_MONITORING_ON"));
         } else {
             sendBroadcast(new Intent("PMR_VOX_MONITORING_OFF"));
+        }
+
+        // V13.7: Если энергосбережение включено, запускаем таймер
+        if (isEnergySavingEnabled) {
+            startScreenOffTimer();
         }
     }
 
@@ -1013,6 +1071,7 @@ public class MainActivity extends AppCompatActivity {
         blinkHandler.removeCallbacks(blinkRunnable);
         tapHandler.removeCallbacks(singleTapRunnable);
         scanHandler.removeCallbacks(scanRunnable);
+        screenOffHandler.removeCallbacks(screenOffRunnable); // V13.7
         if (resumeScanRunnable != null) scanHandler.removeCallbacks(resumeScanRunnable);
         
         if (pttLatched) {
@@ -1023,6 +1082,7 @@ public class MainActivity extends AppCompatActivity {
         }
         if (toneGen != null) toneGen.release();
         if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
+        if (screenLock != null && screenLock.isHeld()) screenLock.release();
         if (mediaSession != null) mediaSession.release();
     }
 }

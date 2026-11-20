@@ -160,7 +160,17 @@
             android:orientation="vertical"
             android:visibility="gone">
 
-            <!-- V13.5: Настройки VOX -->
+            <!-- V13.7: Энергосбережение -->
+            <CheckBox
+                android:id="@+id/cbEnergySaving"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Энергосбережение (гасить экран через 3 мин)"
+                android:textColor="@color/colortextabout"
+                android:checked="false"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="16dp" />
+
             <CheckBox
                 android:id="@+id/cbVox"
                 android:layout_width="match_parent"
@@ -193,7 +203,6 @@
                     android:textColor="@color/colortextabout"
                     android:textSize="18sp" />
             </LinearLayout>
-            <!-- /V13.5 -->
 
             <CheckBox
                 android:id="@+id/cbMode144"

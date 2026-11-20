@@ -31,14 +31,15 @@ public class SettingsActivity extends AppCompatActivity {
     private SharedPreferences prefs;
     private EditText editMailIndex, editPriznak, editPortPrm, editPortPrd, editIp;
     private EditText editUsilMic, editUsilDin;
-    private EditText editVoxThreshold; // V13.5
+    private EditText editVoxThreshold;
     private CheckBox cbUsilMic, cbUsilDin, cbAgc;
     private LinearLayout layoutServerSettings, layoutParamsSettings;
     private Button btnChanList, btnLogs, btnLoadList;
     private CheckBox cbVerboseLog, cbSoundEnabled, cbAskPassword, cbPttLatch, cbShowListNames;
     private CheckBox cbSimplex, cbShowPowerButton, cbShowServerIp;
     private CheckBox cbMode144;
-    private CheckBox cbVox; // V13.5
+    private CheckBox cbVox;
+    private CheckBox cbEnergySaving; // V13.7
 
     private final ActivityResultLauncher<String[]> openListLauncher =
             registerForActivityResult(new ActivityResultContracts.OpenDocument(), uri -> {
@@ -120,7 +121,7 @@ public class SettingsActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_settings);
-        AppLog.add("SettingsActivity: onCreate (V13.5)");
+        AppLog.add("SettingsActivity: onCreate (V13.7)");
 
         prefs = getSharedPreferences("pmr_prefs", MODE_PRIVATE);
 
@@ -143,9 +144,10 @@ public class SettingsActivity extends AppCompatActivity {
         cbShowPowerButton = findViewById(R.id.cbShowPowerButton);
         cbShowServerIp = findViewById(R.id.cbShowServerIp);
         cbMode144 = findViewById(R.id.cbMode144);
-        
-        cbVox = findViewById(R.id.cbVox); // V13.5
-        editVoxThreshold = findViewById(R.id.editVoxThreshold); // V13.5
+        cbVox = findViewById(R.id.cbVox);
+        cbEnergySaving = findViewById(R.id.cbEnergySaving); // V13.7
+
+        editVoxThreshold = findViewById(R.id.editVoxThreshold);
 
         cbUsilMic = findViewById(R.id.cbUsilMic);
         editUsilMic = findViewById(R.id.editUsilMic);
@@ -165,7 +167,12 @@ public class SettingsActivity extends AppCompatActivity {
         cbUsilDin.setChecked(prefs.getBoolean("onUsilDin", false));
         editUsilDin.setText(String.valueOf(prefs.getFloat("DinUsildouble", 5.0f)));
 
-        // V13.5: Загрузка настроек VOX
+        // V13.7: Загрузка настроек энергосбережения
+        if (cbEnergySaving != null) {
+            cbEnergySaving.setChecked(prefs.getBoolean("energy_saving", false));
+            cbEnergySaving.setOnCheckedChangeListener((b, checked) -> prefs.edit().putBoolean("energy_saving", checked).apply());
+        }
+
         if (cbVox != null) {
             cbVox.setChecked(prefs.getBoolean("vox_enabled", false));
             cbVox.setOnCheckedChangeListener((b, checked) -> prefs.edit().putBoolean("vox_enabled", checked).apply());
@@ -317,7 +324,6 @@ public class SettingsActivity extends AppCompatActivity {
         } catch (Exception ignored) {}
         editor.putBoolean("onUsilDin", cbUsilDin.isChecked());
 
-        // V13.5: Сохранение VOX
         if (editVoxThreshold != null) {
             try {
                 int voxVal = Integer.parseInt(editVoxThreshold.getText().toString());
