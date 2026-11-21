@@ -52,8 +52,8 @@ public class MainActivity extends AppCompatActivity {
     private static final float PRESET_STROKE_WIDTH_DP = 2.5f;
     private static final int SCAN_DELAY_MS = 500;
 
-    // V13.7: Энергосбережение
-    private static final long SCREEN_OFF_DELAY_MS = 3 * 60 * 1000; // 3 минуты
+    // V13.7: Энергосбережение (1 минута)
+    private static final long SCREEN_OFF_DELAY_MS = 60 * 1000;
 
     private SharedPreferences prefs;
     private TextView tvChannel, tvIndex, tvSpeakingId, tvVersion, tvActiveUsers;
@@ -66,9 +66,9 @@ public class MainActivity extends AppCompatActivity {
     private boolean isMode144 = false;
     private boolean isSimplex = false;
     private boolean isChannelBusy = false;
-    private boolean isEnergySavingEnabled = false; // V13.7
+    private boolean isEnergySavingEnabled = false;
     private PowerManager.WakeLock wakeLock;
-    private PowerManager.WakeLock screenLock; // V13.7
+    private PowerManager.WakeLock screenLock;
     private int currentChannel = 4;
     private ToneGenerator toneGen;
     private boolean soundEnabled = true;
@@ -104,7 +104,6 @@ public class MainActivity extends AppCompatActivity {
     private Runnable scanRunnable;
     private Runnable resumeScanRunnable;
 
-    // V13.7: Энергосбережение
     private final Handler screenOffHandler = new Handler(Looper.getMainLooper());
     private Runnable screenOffRunnable;
 
@@ -166,7 +165,7 @@ public class MainActivity extends AppCompatActivity {
             if (clientNumber != -1) {
                 isChannelBusy = true;
                 if (isScanning) pauseScanningForVoice();
-                if (isEnergySavingEnabled) wakeScreen(); // V13.7
+                if (isEnergySavingEnabled) wakeScreen();
 
                 if (!showListNames) {
                     String text = lastUserCount >= 0 ? String.valueOf(lastUserCount) : "";
@@ -274,12 +273,14 @@ public class MainActivity extends AppCompatActivity {
         checkAndRequestPermissions();
         setupMediaSession();
 
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        // V13.7: Не захватываем WakeLock сразу, если включено энергосбережение
         PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
         if (powerManager != null) {
             wakeLock = powerManager.newWakeLock(
                     PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP, "PMR::WakeLock");
-            wakeLock.acquire();
+            if (!isEnergySavingEnabled) {
+                wakeLock.acquire();
+            }
         }
 
         currentChannel = prefs.getInt("current_channel", 4);
@@ -305,7 +306,7 @@ public class MainActivity extends AppCompatActivity {
             new Handler(Looper.getMainLooper()).postDelayed(() -> sendBroadcast(new Intent("PMR_VOX_MONITORING_ON")), 1000);
         }
 
-        // V13.7: Запускаем таймер энергосбережения
+        // V13.7: Запускаем таймер энергосбережения только если экран активен
         if (isEnergySavingEnabled) {
             startScreenOffTimer();
         }
@@ -984,13 +985,12 @@ public class MainActivity extends AppCompatActivity {
         if (!isEnergySavingEnabled) return;
         screenOffHandler.removeCallbacks(screenOffRunnable);
         screenOffRunnable = () -> {
-            AppLog.add("MainActivity: Энергосбережение — выключаем экран");
+            AppLog.add("MainActivity: Энергосбережение — выключаем экран (через 1 мин)");
             try {
-                if (screenLock != null && screenLock.isHeld()) screenLock.release();
-                screenLock = null;
-                // Выключаем экран через DevicePolicyManager (требует прав администратора устройства)
-                // Альтернатива: просто снимаем WakeLock (экран погаснет)
-                if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
+                if (wakeLock != null && wakeLock.isHeld()) {
+                    wakeLock.release();
+                    AppLog.add("MainActivity: WakeLock отпущен, экран гаснет");
+                }
             } catch (Exception e) {
                 AppLog.add("MainActivity: Ошибка выключения экрана — " + e.getMessage());
             }
@@ -1008,6 +1008,7 @@ public class MainActivity extends AppCompatActivity {
                     wakeLock = pm.newWakeLock(
                             PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP, "PMR::WakeLock");
                     wakeLock.acquire();
+                    AppLog.add("MainActivity: WakeLock захвачен, экран включен");
                 }
             }
         } catch (Exception e) {
@@ -1039,7 +1040,7 @@ public class MainActivity extends AppCompatActivity {
         registerReceiver(usersReceiver, new IntentFilter("PMR_USERS_CHANGED"));
         registerReceiver(voxReceiver, new IntentFilter("PMR_VOX_LEVEL"));
 
-        if (wakeLock != null && !wakeLock.isHeld()) wakeLock.acquire();
+        if (wakeLock != null && !wakeLock.isHeld() && !isEnergySavingEnabled) wakeLock.acquire();
         if (mediaSession != null) mediaSession.setActive(true);
 
         if (isVoxEnabled) {
@@ -1048,7 +1049,6 @@ public class MainActivity extends AppCompatActivity {
             sendBroadcast(new Intent("PMR_VOX_MONITORING_OFF"));
         }
 
-        // V13.7: Если энергосбережение включено, запускаем таймер
         if (isEnergySavingEnabled) {
             startScreenOffTimer();
         }
@@ -1071,7 +1071,7 @@ public class MainActivity extends AppCompatActivity {
         blinkHandler.removeCallbacks(blinkRunnable);
         tapHandler.removeCallbacks(singleTapRunnable);
         scanHandler.removeCallbacks(scanRunnable);
-        screenOffHandler.removeCallbacks(screenOffRunnable); // V13.7
+        screenOffHandler.removeCallbacks(screenOffRunnable);
         if (resumeScanRunnable != null) scanHandler.removeCallbacks(resumeScanRunnable);
         
         if (pttLatched) {
